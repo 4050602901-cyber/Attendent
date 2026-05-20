@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
 function today() { return new Date().toISOString().split('T')[0] }
@@ -217,6 +218,44 @@ export default function Reports() {
     setTimeout(() => win.print(), 600)
   }
 
+  /* ── Excel Export ── */
+  function exportExcel() {
+    const wb = XLSX.utils.book_new()
+
+    if (mode === 'daily') {
+      const ws1 = XLSX.utils.json_to_sheet(dailyAbsent.map((a, i) => ({
+        'ល.រ': i + 1, 'ឈ្មោះ': a.students?.name || '', 'ថ្នាក់': a.students?.classroom || '',
+        'មុខវិជ្ជា': a.subjects?.subject_name || '', 'ស្ថានភាព': a.status, 'ថ្ងៃ': a.date,
+      })))
+      ws1['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 16 }, { wch: 12 }, { wch: 12 }]
+      XLSX.utils.book_append_sheet(wb, ws1, 'អវត្តមាន')
+
+      const ws2 = XLSX.utils.json_to_sheet(dailyMissing.map((h, i) => ({
+        'ល.រ': i + 1, 'ឈ្មោះ': h.students?.name || '', 'ថ្នាក់': h.students?.classroom || '',
+        'មុខវិជ្ជា': h.subjects?.subject_name || '', 'កិច្ចការ': h.homework_title || '',
+        'ស្ថានភាព': h.status, 'ថ្ងៃ': h.date,
+      })))
+      ws2['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 12 }]
+      XLSX.utils.book_append_sheet(wb, ws2, 'កិច្ចការ')
+    } else {
+      const ws1 = XLSX.utils.json_to_sheet(aggAtt().map((s, i) => ({
+        'ល.រ': i + 1, 'ឈ្មោះ': s.name || '', 'ថ្នាក់': s.classroom || '',
+        'វត្តមាន': s.present, 'ច្បាប់': s.excused, 'អត់ច្បាប់': s.absent,
+      })))
+      ws1['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 10 }]
+      XLSX.utils.book_append_sheet(wb, ws1, 'សង្ខេបវត្តមាន')
+
+      const ws2 = XLSX.utils.json_to_sheet(aggHw().map((s, i) => ({
+        'ល.រ': i + 1, 'ឈ្មោះ': s.name || '', 'ថ្នាក់': s.classroom || '',
+        'បានធ្វើ': s.done, 'ពាក់កណ្ដាល': s.half, 'មិនធ្វើ': s.notDone,
+      })))
+      ws2['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 10 }]
+      XLSX.utils.book_append_sheet(wb, ws2, 'សង្ខេបកិច្ចការ')
+    }
+
+    XLSX.writeFile(wb, `report-${filters.dateFrom}-${filters.dateTo}.xlsx`)
+  }
+
   return (
     <div>
       <h2 className="text-xl font-bold text-gray-800 mb-6">របាយការណ៍</h2>
@@ -278,10 +317,16 @@ export default function Reports() {
           </div>
           <div className="flex gap-2">
             {hasRun && (attData.length > 0 || hwData.length > 0) && (
-              <button onClick={exportPDF}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 font-medium flex items-center gap-1.5">
-                🖨️ Export PDF
-              </button>
+              <>
+                <button onClick={exportExcel}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 font-medium flex items-center gap-1.5">
+                  📊 Export Excel
+                </button>
+                <button onClick={exportPDF}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 font-medium flex items-center gap-1.5">
+                  🖨️ Export PDF
+                </button>
+              </>
             )}
             <button onClick={runReport} disabled={loading}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 font-medium">
