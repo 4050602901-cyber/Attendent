@@ -5,3 +5,7 @@
 body {
   font-family: 'Hanuman', 'Inter', sans-serif;
 }
+
+@media print {
+  .no-print { display: none !important; }
+}

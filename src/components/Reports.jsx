@@ -5,15 +5,9 @@ function today() { return new Date().toISOString().split('T')[0] }
 
 function startOf(unit) {
   const d = new Date()
-  if (unit === 'week') {
-    const day = d.getDay() || 7
-    d.setDate(d.getDate() - day + 1)
-  } else if (unit === 'month') {
-    d.setDate(1)
-  } else if (unit === 'semester') {
-    d.setDate(1)
-    d.setMonth(d.getMonth() >= 7 ? 7 : 0)
-  }
+  if (unit === 'week')     { const day = d.getDay() || 7; d.setDate(d.getDate() - day + 1) }
+  else if (unit === 'month')    { d.setDate(1) }
+  else if (unit === 'semester') { d.setDate(1); d.setMonth(d.getMonth() >= 7 ? 7 : 0) }
   return d.toISOString().split('T')[0]
 }
 
@@ -24,11 +18,11 @@ export default function Reports() {
     classroom: 'ទាំងអស់', subject: 'ទាំងអស់',
     dateFrom: today(), dateTo: today(),
   })
-  const [mode,       setMode]       = useState('daily')
-  const [attData,    setAttData]    = useState([])
-  const [hwData,     setHwData]     = useState([])
-  const [loading,    setLoading]    = useState(false)
-  const [hasRun,     setHasRun]     = useState(false)
+  const [mode,    setMode]    = useState('daily')
+  const [attData, setAttData] = useState([])
+  const [hwData,  setHwData]  = useState([])
+  const [loading, setLoading] = useState(false)
+  const [hasRun,  setHasRun]  = useState(false)
 
   useEffect(() => { loadMeta() }, [])
 
@@ -42,24 +36,23 @@ export default function Reports() {
   }
 
   async function runReport() {
-    setLoading(true)
-    setHasRun(true)
+    setLoading(true); setHasRun(true)
 
     let attQ = supabase
       .from('attendance')
-      .select('id, student_id, subject_id, date, status, students(id,name,student_code,classroom), subjects(subject_name)')
+      .select('id,student_id,subject_id,date,status,students(id,name,student_code,classroom),subjects(subject_name)')
       .gte('date', filters.dateFrom).lte('date', filters.dateTo)
       .order('date', { ascending: false })
 
     let hwQ = supabase
       .from('homework_records')
-      .select('id, student_id, subject_id, date, homework_title, status, students(id,name,student_code,classroom), subjects(subject_name)')
+      .select('id,student_id,subject_id,date,homework_title,status,students(id,name,student_code,classroom),subjects(subject_name)')
       .gte('date', filters.dateFrom).lte('date', filters.dateTo)
       .order('date', { ascending: false })
 
     if (filters.subject !== 'ទាំងអស់') {
       attQ = attQ.eq('subject_id', filters.subject)
-      hwQ  = hwQ.eq('subject_id', filters.subject)
+      hwQ  = hwQ.eq('subject_id',  filters.subject)
     }
 
     const [ar, hr] = await Promise.all([attQ, hwQ])
@@ -71,18 +64,17 @@ export default function Reports() {
       hw  = hw.filter(h => h.students?.classroom === filters.classroom)
     }
 
-    setAttData(att)
-    setHwData(hw)
+    setAttData(att); setHwData(hw)
     setLoading(false)
   }
 
   function setPreset(p) {
-    const to = today()
+    const to   = today()
     const from = p === 'today' ? to : startOf(p === 'week' ? 'week' : p === 'month' ? 'month' : 'semester')
     setFilters(f => ({ ...f, dateFrom: from, dateTo: to }))
   }
 
-  // ---- aggregate per student ----
+  /* ── Aggregation ── */
   function aggAtt() {
     const m = {}
     attData.forEach(a => {
@@ -100,15 +92,130 @@ export default function Reports() {
     hwData.forEach(h => {
       const k = h.student_id
       if (!m[k]) m[k] = { ...h.students, done: 0, half: 0, notDone: 0 }
-      if (h.status === 'បានធ្វើ')            m[k].done++
+      if (h.status === 'បានធ្វើ')             m[k].done++
       else if (h.status === 'ធ្វើបានពាក់កណ្តាល') m[k].half++
-      else if (h.status === 'មិនបានធ្វើ')        m[k].notDone++
+      else if (h.status === 'មិនបានធ្វើ')         m[k].notDone++
     })
     return Object.values(m).sort((a, b) => b.notDone - a.notDone)
   }
 
   const dailyAbsent  = attData.filter(a => a.status !== 'វត្តមាន')
   const dailyMissing = hwData.filter(h => h.status !== 'បានធ្វើ')
+
+  /* ── PDF Export ── */
+  function exportPDF() {
+    const subjectLabel = filters.subject === 'ទាំងអស់'
+      ? 'ទាំងអស់'
+      : subjects.find(s => String(s.id) === filters.subject)?.subject_name || filters.subject
+
+    const rows = (data, cols) =>
+      data.length
+        ? data.map(r => `<tr>${cols.map(c => `<td>${c(r)}</td>`).join('')}</tr>`).join('')
+        : `<tr><td colspan="${cols.length}" style="text-align:center;color:#9ca3af;padding:16px">គ្មានទិន្នន័យ</td></tr>`
+
+    const badge = (text, color) =>
+      `<span style="background:${color==='yellow'?'#fef9c3':'#fee2e2'};color:${color==='yellow'?'#92400e':'#991b1b'};padding:2px 8px;border-radius:9999px;font-size:11px">${text}</span>`
+
+    let body = ''
+
+    if (mode === 'daily') {
+      body = `
+        <div class="section">
+          <h3>សិស្សអវត្តមាន (${dailyAbsent.length} នាក់)</h3>
+          <table>
+            <thead><tr><th>#</th><th>ឈ្មោះ</th><th>ថ្នាក់</th><th>មុខវិជ្ជា</th><th>ស្ថានភាព</th><th>ថ្ងៃ</th></tr></thead>
+            <tbody>${rows(dailyAbsent, [
+              (_, i) => i + 1,
+              r => r.students?.name || '',
+              r => r.students?.classroom || '',
+              r => r.subjects?.subject_name || '',
+              r => badge(r.status, r.status === 'ច្បាប់' ? 'yellow' : 'red'),
+              r => r.date,
+            ])}</tbody>
+          </table>
+        </div>
+        <div class="section">
+          <h3>សិស្សមិនបានធ្វើកិច្ចការ (${dailyMissing.length} នាក់)</h3>
+          <table>
+            <thead><tr><th>#</th><th>ឈ្មោះ</th><th>ថ្នាក់</th><th>កិច្ចការ</th><th>ស្ថានភាព</th></tr></thead>
+            <tbody>${rows(dailyMissing, [
+              (_, i) => i + 1,
+              r => r.students?.name || '',
+              r => r.students?.classroom || '',
+              r => r.homework_title || '',
+              r => badge(r.status, r.status === 'ធ្វើបានពាក់កណ្តាល' ? 'yellow' : 'red'),
+            ])}</tbody>
+          </table>
+        </div>`
+    } else {
+      const agg = aggAtt(); const hw = aggHw()
+      body = `
+        <div class="section">
+          <h3>សង្ខេបវត្តមានតាមសិស្ស</h3>
+          <table>
+            <thead><tr><th>#</th><th>ឈ្មោះ</th><th>ថ្នាក់</th><th style="color:#16a34a">វត្តមាន</th><th style="color:#ca8a04">ច្បាប់</th><th style="color:#dc2626">អត់ច្បាប់</th></tr></thead>
+            <tbody>${rows(agg, [
+              (_, i) => i + 1,
+              r => r.name || '',
+              r => r.classroom || '',
+              r => r.present,
+              r => r.excused,
+              r => `<strong style="color:${r.absent>0?'#dc2626':'#9ca3af'}">${r.absent}</strong>`,
+            ])}</tbody>
+          </table>
+        </div>
+        <div class="section">
+          <h3>សង្ខេបកិច្ចការតាមសិស្ស</h3>
+          <table>
+            <thead><tr><th>#</th><th>ឈ្មោះ</th><th>ថ្នាក់</th><th style="color:#16a34a">បានធ្វើ</th><th style="color:#ca8a04">ពាក់កណ្ដាល</th><th style="color:#dc2626">មិនធ្វើ</th></tr></thead>
+            <tbody>${rows(hw, [
+              (_, i) => i + 1,
+              r => r.name || '',
+              r => r.classroom || '',
+              r => r.done,
+              r => r.half,
+              r => `<strong style="color:${r.notDone>0?'#dc2626':'#9ca3af'}">${r.notDone}</strong>`,
+            ])}</tbody>
+          </table>
+        </div>`
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="km">
+<head>
+  <meta charset="UTF-8">
+  <title>របាយការណ៍ ${filters.dateFrom}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Hanuman:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Hanuman', sans-serif; padding: 30px; color: #111; font-size: 13px; }
+    .header { margin-bottom: 20px; border-bottom: 2px solid #1d4ed8; padding-bottom: 12px; }
+    .header h1 { font-size: 18px; color: #1d4ed8; margin-bottom: 4px; }
+    .header p  { color: #6b7280; font-size: 12px; }
+    .section { margin-bottom: 28px; }
+    .section h3 { font-size: 14px; margin-bottom: 8px; color: #374151; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #1d4ed8; color: white; padding: 7px 10px; text-align: left; font-weight: 600; }
+    td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+    tr:nth-child(even) td { background: #f9fafb; }
+    @media print { body { padding: 15px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>របាយការណ៍អវត្តមាន និងកិច្ចការ</h1>
+    <p>ចន្លោះ: <strong>${filters.dateFrom}</strong> — <strong>${filters.dateTo}</strong> &nbsp;|&nbsp; ថ្នាក់: <strong>${filters.classroom}</strong> &nbsp;|&nbsp; មុខវិជ្ជា: <strong>${subjectLabel}</strong></p>
+  </div>
+  ${body}
+</body>
+</html>`
+
+    const win = window.open('', '_blank', 'width=960,height=720')
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 600)
+  }
 
   return (
     <div>
@@ -147,7 +254,7 @@ export default function Reports() {
           </div>
         </div>
 
-        {/* Preset buttons */}
+        {/* Presets */}
         <div className="flex flex-wrap gap-2 mb-3">
           {[['today','ថ្ងៃនេះ'],['week','សប្ដាហ៍'],['month','ខែ'],['semester','ឆមាស']].map(([k,l]) => (
             <button key={k} onClick={() => setPreset(k)}
@@ -157,10 +264,10 @@ export default function Reports() {
           ))}
         </div>
 
-        {/* Mode + Run */}
-        <div className="flex justify-between items-center">
+        {/* Mode + actions */}
+        <div className="flex flex-wrap justify-between items-center gap-2">
           <div className="flex gap-2">
-            {[['daily','ប្រចាំថ្ងៃ / ជ្រើស'],['summary','សង្ខេបតាមសិស្ស']].map(([k,l]) => (
+            {[['daily','ប្រចាំថ្ងៃ'],['summary','សង្ខេបតាមសិស្ស']].map(([k,l]) => (
               <button key={k} onClick={() => setMode(k)}
                 className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
                   mode === k ? 'bg-blue-600 text-white' : 'border text-gray-600 hover:bg-gray-50'
@@ -169,16 +276,24 @@ export default function Reports() {
               </button>
             ))}
           </div>
-          <button onClick={runReport} disabled={loading}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 font-medium">
-            {loading ? 'កំពុងស្វែង…' : 'ទាញរបាយការណ៍'}
-          </button>
+          <div className="flex gap-2">
+            {hasRun && (attData.length > 0 || hwData.length > 0) && (
+              <button onClick={exportPDF}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 font-medium flex items-center gap-1.5">
+                🖨️ Export PDF
+              </button>
+            )}
+            <button onClick={runReport} disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 font-medium">
+              {loading ? 'កំពុងស្វែង…' : 'ទាញរបាយការណ៍'}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Results */}
       {!hasRun && (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-gray-400 text-sm">
           ជ្រើសតម្រង រួចចុច "ទាញរបាយការណ៍"
         </div>
       )}
@@ -187,25 +302,23 @@ export default function Reports() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <ResultTable
             title={`សិស្សអវត្តមាន (${dailyAbsent.length})`}
-            headerBg="bg-red-50 border-red-100"
-            headerText="text-red-800"
+            headerBg="bg-red-50 border-red-100" headerText="text-red-800"
             rows={dailyAbsent}
             cols={[
-              { label: 'ឈ្មោះ',     render: r => <><div>{r.students?.name}</div><div className="text-xs text-gray-400">{r.students?.classroom}</div></> },
-              { label: 'មុខវិជ្ជា',  render: r => <span className="text-xs">{r.subjects?.subject_name}</span> },
-              { label: 'ស្ថានភាព',  render: r => <StatusBadge status={r.status} /> },
-              { label: 'ថ្ងៃ',       render: r => <span className="text-xs text-gray-500">{r.date}</span> },
+              { label: 'ឈ្មោះ',    render: r => <><div className="font-medium">{r.students?.name}</div><div className="text-xs text-gray-400">{r.students?.classroom}</div></> },
+              { label: 'មុខវិជ្ជា', render: r => <span className="text-xs">{r.subjects?.subject_name}</span> },
+              { label: 'ស្ថានភាព', render: r => <StatusBadge status={r.status} /> },
+              { label: 'ថ្ងៃ',      render: r => <span className="text-xs text-gray-500">{r.date}</span> },
             ]}
           />
           <ResultTable
             title={`កិច្ចការមិនបានធ្វើ (${dailyMissing.length})`}
-            headerBg="bg-orange-50 border-orange-100"
-            headerText="text-orange-800"
+            headerBg="bg-orange-50 border-orange-100" headerText="text-orange-800"
             rows={dailyMissing}
             cols={[
-              { label: 'ឈ្មោះ',     render: r => <><div>{r.students?.name}</div><div className="text-xs text-gray-400">{r.students?.classroom}</div></> },
-              { label: 'កិច្ចការ',   render: r => <span className="text-xs">{r.homework_title}</span> },
-              { label: 'ស្ថានភាព',  render: r => <StatusBadge status={r.status} /> },
+              { label: 'ឈ្មោះ',    render: r => <><div className="font-medium">{r.students?.name}</div><div className="text-xs text-gray-400">{r.students?.classroom}</div></> },
+              { label: 'កិច្ចការ',  render: r => <span className="text-xs">{r.homework_title}</span> },
+              { label: 'ស្ថានភាព', render: r => <StatusBadge status={r.status} /> },
             ]}
           />
         </div>
@@ -218,9 +331,7 @@ export default function Reports() {
             <div className="px-4 py-3 bg-blue-50 border-b border-blue-100">
               <h3 className="font-semibold text-blue-800">សង្ខេបវត្តមានតាមសិស្ស</h3>
             </div>
-            {aggAtt().length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">គ្មានទិន្នន័យ</div>
-            ) : (
+            {aggAtt().length === 0 ? <Empty /> : (
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
@@ -233,15 +344,10 @@ export default function Reports() {
                 <tbody>
                   {aggAtt().map(s => (
                     <tr key={s.id} className="border-b hover:bg-gray-50">
-                      <td className="px-3 py-2">
-                        <div className="font-medium">{s.name}</div>
-                        <div className="text-xs text-gray-400">{s.classroom}</div>
-                      </td>
+                      <td className="px-3 py-2"><div className="font-medium">{s.name}</div><div className="text-xs text-gray-400">{s.classroom}</div></td>
                       <td className="px-3 py-2 text-center font-semibold text-green-600">{s.present}</td>
                       <td className="px-3 py-2 text-center font-semibold text-yellow-600">{s.excused}</td>
-                      <td className="px-3 py-2 text-center">
-                        <span className={`font-bold ${s.absent > 0 ? 'text-red-600' : 'text-gray-300'}`}>{s.absent}</span>
-                      </td>
+                      <td className="px-3 py-2 text-center"><span className={`font-bold ${s.absent > 0 ? 'text-red-600' : 'text-gray-300'}`}>{s.absent}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -254,9 +360,7 @@ export default function Reports() {
             <div className="px-4 py-3 bg-purple-50 border-b border-purple-100">
               <h3 className="font-semibold text-purple-800">សង្ខេបកិច្ចការតាមសិស្ស</h3>
             </div>
-            {aggHw().length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">គ្មានទិន្នន័យ</div>
-            ) : (
+            {aggHw().length === 0 ? <Empty /> : (
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
@@ -269,15 +373,10 @@ export default function Reports() {
                 <tbody>
                   {aggHw().map(s => (
                     <tr key={s.id} className="border-b hover:bg-gray-50">
-                      <td className="px-3 py-2">
-                        <div className="font-medium">{s.name}</div>
-                        <div className="text-xs text-gray-400">{s.classroom}</div>
-                      </td>
+                      <td className="px-3 py-2"><div className="font-medium">{s.name}</div><div className="text-xs text-gray-400">{s.classroom}</div></td>
                       <td className="px-3 py-2 text-center font-semibold text-green-600">{s.done}</td>
                       <td className="px-3 py-2 text-center font-semibold text-yellow-600">{s.half}</td>
-                      <td className="px-3 py-2 text-center">
-                        <span className={`font-bold ${s.notDone > 0 ? 'text-red-600' : 'text-gray-300'}`}>{s.notDone}</span>
-                      </td>
+                      <td className="px-3 py-2 text-center"><span className={`font-bold ${s.notDone > 0 ? 'text-red-600' : 'text-gray-300'}`}>{s.notDone}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -296,24 +395,16 @@ function ResultTable({ title, headerBg, headerText, rows, cols }) {
       <div className={`px-4 py-3 border-b ${headerBg}`}>
         <h3 className={`font-semibold ${headerText}`}>{title}</h3>
       </div>
-      {rows.length === 0 ? (
-        <div className="p-8 text-center text-gray-400 text-sm">គ្មានទិន្នន័យ</div>
-      ) : (
+      {rows.length === 0 ? <Empty /> : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
-              <tr>
-                {cols.map(c => (
-                  <th key={c.label} className="px-3 py-2 text-left text-gray-600 font-medium">{c.label}</th>
-                ))}
-              </tr>
+              <tr>{cols.map(c => <th key={c.label} className="px-3 py-2 text-left text-gray-600 font-medium">{c.label}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.id} className="border-b hover:bg-gray-50">
-                  {cols.map(c => (
-                    <td key={c.label} className="px-3 py-2">{c.render(r)}</td>
-                  ))}
+                  {cols.map(c => <td key={c.label} className="px-3 py-2">{c.render(r)}</td>)}
                 </tr>
               ))}
             </tbody>
@@ -326,14 +417,14 @@ function ResultTable({ title, headerBg, headerText, rows, cols }) {
 
 function StatusBadge({ status }) {
   const map = {
-    'ច្បាប់':            'bg-yellow-100 text-yellow-700',
-    'អត់ច្បាប់':         'bg-red-100 text-red-700',
-    'ធ្វើបានពាក់កណ្តាល': 'bg-yellow-100 text-yellow-700',
-    'មិនបានធ្វើ':        'bg-red-100 text-red-700',
+    'ច្បាប់':             'bg-yellow-100 text-yellow-700',
+    'អត់ច្បាប់':          'bg-red-100 text-red-700',
+    'ធ្វើបានពាក់កណ្តាល':  'bg-yellow-100 text-yellow-700',
+    'មិនបានធ្វើ':         'bg-red-100 text-red-700',
   }
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[status] || 'bg-gray-100 text-gray-600'}`}>
-      {status}
-    </span>
-  )
+  return <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[status] || 'bg-gray-100 text-gray-600'}`}>{status}</span>
+}
+
+function Empty() {
+  return <div className="p-8 text-center text-gray-400 text-sm">គ្មានទិន្នន័យ</div>
 }
