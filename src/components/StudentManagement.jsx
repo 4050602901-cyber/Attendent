@@ -2,40 +2,61 @@ import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
+const PAGE_SIZE = 100
+
 const DEFAULT_CLASSROOMS = [
   '10ក','10ខ','10គ','10ឃ',
   '11ក','11ខ','11គ','11ឃ',
   '12ក','12ខ','12គ','12ឃ',
 ]
-
 const EMPTY_FORM = { student_code: '', name: '', gender: 'ប្រុស', dob: '', classroom: '10ក' }
 
 export default function StudentManagement() {
-  const [students,     setStudents]     = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [showModal,    setShowModal]    = useState(false)
-  const [editId,       setEditId]       = useState(null)
-  const [form,         setForm]         = useState(EMPTY_FORM)
-  const [filterClass,  setFilterClass]  = useState('ទាំងអស់')
-  const [search,       setSearch]       = useState('')
-  const [saving,       setSaving]       = useState(false)
-  const [error,        setError]        = useState('')
+  const [students,    setStudents]    = useState([])
+  const [total,       setTotal]       = useState(0)
+  const [page,        setPage]        = useState(0)
+  const [loading,     setLoading]     = useState(true)
+  const [showModal,   setShowModal]   = useState(false)
+  const [editId,      setEditId]      = useState(null)
+  const [form,        setForm]        = useState(EMPTY_FORM)
+  const [filterClass, setFilterClass] = useState('ទាំងអស់')
+  const [search,      setSearch]      = useState('')
+  const [saving,      setSaving]      = useState(false)
+  const [error,       setError]       = useState('')
 
-  // Excel import
-  const fileRef                           = useRef()
-  const [importData,   setImportData]   = useState([])
-  const [showImport,   setShowImport]   = useState(false)
-  const [importing,    setImporting]    = useState(false)
-  const [importError,  setImportError]  = useState('')
+  const fileRef                            = useRef()
+  const [importData,  setImportData]  = useState([])
+  const [showImport,  setShowImport]  = useState(false)
+  const [importing,   setImporting]   = useState(false)
+  const [importLog,   setImportLog]   = useState('')
 
-  useEffect(() => { fetchStudents() }, [])
+  // Reset page when filter/search changes
+  useEffect(() => { setPage(0) }, [filterClass, search])
+  useEffect(() => { fetchStudents() }, [page, filterClass, search])
 
   async function fetchStudents() {
     setLoading(true)
-    const { data } = await supabase.from('students').select('*').order('classroom').order('name')
+    let q = supabase
+      .from('students').select('*', { count: 'exact' })
+      .order('classroom').order('name')
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+
+    if (filterClass !== 'ទាំងអស់') q = q.eq('classroom', filterClass)
+    if (search.trim())             q = q.or(`name.ilike.%${search.trim()}%,student_code.ilike.%${search.trim()}%`)
+
+    const { data, count } = await q
     setStudents(data || [])
+    setTotal(count || 0)
     setLoading(false)
   }
+
+  // Classroom list (distinct) — separate small query
+  const [classrooms, setClassrooms] = useState(['ទាំងអស់'])
+  useEffect(() => {
+    supabase.from('students').select('classroom').then(({ data }) => {
+      if (data) setClassrooms(['ទាំងអស់', ...new Set(data.map(s => s.classroom)).values()])
+    })
+  }, [])
 
   /* ── Add / Edit ── */
   function openAdd()   { setForm(EMPTY_FORM); setEditId(null); setError(''); setShowModal(true) }
@@ -72,18 +93,17 @@ export default function StudentManagement() {
     const ws = XLSX.utils.aoa_to_sheet([
       ['អត្តលេខ', 'ឈ្មោះ', 'ភេទ', 'ថ្ងៃខែឆ្នាំ', 'ថ្នាក់'],
       ['2024001', 'ហេង សុភា', 'ប្រុស', '2008-05-15', '10ក'],
-      ['2024002', 'ស្រី ចន្ទី', 'ស្រី',  '2008-09-22', '10ក'],
+      ['2024002', 'ស្រី ចន្ទី', 'ស្រី', '2008-09-22', '10ក'],
     ])
-    ws['!cols'] = [{ wch: 12 }, { wch: 20 }, { wch: 8 }, { wch: 14 }, { wch: 8 }]
+    ws['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 8 }, { wch: 14 }, { wch: 8 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'សិស្ស')
     XLSX.writeFile(wb, 'template-sisso.xlsx')
   }
 
-  /* ── Excel: Import ── */
+  /* ── Excel: Parse file ── */
   function handleFile(e) {
-    const file = e.target.files[0]
-    if (!file) return
+    const file = e.target.files[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
       const wb   = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' })
@@ -96,46 +116,54 @@ export default function StudentManagement() {
         classroom:    String(r['ថ្នាក់']   || '').trim(),
       })).filter(s => s.student_code && s.name && s.classroom)
       setImportData(parsed)
-      setImportError(parsed.length === 0 ? 'រកមិនឃើញទិន្នន័យ — ប្រើ template ដែលបានផ្ដល់ជូន' : '')
+      setImportLog(parsed.length === 0 ? '⚠️ រកមិនឃើញទិន្នន័យ — ប្រើ template ដែលបានផ្ដល់' : '')
       setShowImport(true)
     }
     reader.readAsArrayBuffer(file)
     e.target.value = ''
   }
 
+  /* ── Excel: Batch import (200 per chunk to stay within limits) ── */
   async function confirmImport() {
-    setImporting(true); setImportError('')
-    const { error } = await supabase
-      .from('students')
-      .upsert(importData, { onConflict: 'student_code' })
+    setImporting(true); setImportLog('')
+    const CHUNK = 200
+    let done = 0; let failed = 0
+    for (let i = 0; i < importData.length; i += CHUNK) {
+      const chunk = importData.slice(i, i + CHUNK)
+      const { error } = await supabase
+        .from('students').upsert(chunk, { onConflict: 'student_code' })
+      if (error) { failed += chunk.length }
+      else       { done += chunk.length }
+      setImportLog(`កំពុង import… ${done}/${importData.length} rows`)
+    }
     setImporting(false)
-    if (error) { setImportError(error.message) }
-    else { setShowImport(false); setImportData([]); fetchStudents() }
+    if (failed === 0) {
+      setImportLog(`✅ Import ជោគជ័យ ${done} rows`)
+      setTimeout(() => { setShowImport(false); setImportData([]); fetchStudents() }, 1500)
+    } else {
+      setImportLog(`⚠️ Import: ${done} ✅  ${failed} ❌ — ពិនិត្យ duplicate student_code`)
+    }
   }
 
-  /* ── Excel: Export students ── */
-  function exportStudents() {
-    const data = filtered.map((s, i) => ({
-      'ល.រ':         i + 1,
-      'អត្តលេខ':     s.student_code,
-      'ឈ្មោះ':       s.name,
-      'ភេទ':         s.gender,
-      'ថ្ងៃខែឆ្នាំ': s.dob || '',
-      'ថ្នាក់':       s.classroom,
+  /* ── Excel: Export current page / all (max 1000) ── */
+  async function exportStudents() {
+    // fetch up to 1000 with current filter
+    let q = supabase.from('students').select('*').order('classroom').order('name').range(0, 999)
+    if (filterClass !== 'ទាំងអស់') q = q.eq('classroom', filterClass)
+    if (search.trim())             q = q.or(`name.ilike.%${search.trim()}%,student_code.ilike.%${search.trim()}%`)
+    const { data } = await q
+    const rows = (data || []).map((s, i) => ({
+      'ល.រ': i + 1, 'អត្តលេខ': s.student_code, 'ឈ្មោះ': s.name,
+      'ភេទ': s.gender, 'ថ្ងៃខែឆ្នាំ': s.dob || '', 'ថ្នាក់': s.classroom,
     }))
-    const ws = XLSX.utils.json_to_sheet(data)
+    const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 22 }, { wch: 8 }, { wch: 14 }, { wch: 8 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'សិស្ស')
     XLSX.writeFile(wb, `sisso-${filterClass !== 'ទាំងអស់' ? filterClass : 'toangos'}.xlsx`)
   }
 
-  const classrooms = ['ទាំងអស់', ...new Set(students.map(s => s.classroom))]
-  const filtered   = students.filter(s => {
-    const cls  = filterClass === 'ទាំងអស់' || s.classroom === filterClass
-    const term = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.student_code.includes(search)
-    return cls && term
-  })
+  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
     <div>
@@ -152,12 +180,10 @@ export default function StudentManagement() {
             📂 Import Excel
           </button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
-          {filtered.length > 0 && (
-            <button onClick={exportStudents}
-              className="px-3 py-2 border border-orange-400 text-orange-700 rounded-lg text-sm hover:bg-orange-50 flex items-center gap-1.5">
-              📤 Export Excel
-            </button>
-          )}
+          <button onClick={exportStudents}
+            className="px-3 py-2 border border-orange-400 text-orange-700 rounded-lg text-sm hover:bg-orange-50 flex items-center gap-1.5">
+            📤 Export Excel
+          </button>
           <button onClick={openAdd}
             className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium">
             + បន្ថែមសិស្ស
@@ -181,7 +207,7 @@ export default function StudentManagement() {
             className="border rounded-lg px-3 py-2 text-sm w-48 outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div className="ml-auto text-sm text-gray-500 self-center">
-          សរុប: <strong className="text-gray-700">{filtered.length}</strong> នាក់
+          សរុប: <strong className="text-gray-700">{total.toLocaleString()}</strong> នាក់
         </div>
       </div>
 
@@ -203,11 +229,11 @@ export default function StudentManagement() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {students.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-10 text-gray-400">គ្មានទិន្នន័យ</td></tr>
-              ) : filtered.map((s, i) => (
+              ) : students.map((s, i) => (
                 <tr key={s.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-400">{i + 1}</td>
+                  <td className="px-4 py-3 text-gray-400">{page * PAGE_SIZE + i + 1}</td>
                   <td className="px-4 py-3 font-mono text-blue-600 text-xs">{s.student_code}</td>
                   <td className="px-4 py-3 font-medium">{s.name}</td>
                   <td className="px-4 py-3">
@@ -227,6 +253,21 @@ export default function StudentManagement() {
               ))}
             </tbody>
           </table>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="px-4 py-3 border-t bg-gray-50 flex items-center justify-between text-sm">
+              <span className="text-gray-500">
+                ទំព័រ {page + 1} / {totalPages} &nbsp;({total.toLocaleString()} នាក់)
+              </span>
+              <div className="flex gap-2">
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                  className="px-3 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-40">← មុន</button>
+                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                  className="px-3 py-1 border rounded-lg hover:bg-gray-100 disabled:opacity-40">បន្ទាប់ →</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -286,33 +327,32 @@ export default function StudentManagement() {
         </div>
       )}
 
-      {/* Import Preview Modal */}
+      {/* Import Modal */}
       {showImport && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col">
             <div className="px-6 py-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-bold">Preview ទិន្នន័យ Excel ({importData.length} rows)</h3>
-              <button onClick={() => setShowImport(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              <h3 className="text-lg font-bold">Preview — {importData.length.toLocaleString()} rows</h3>
+              <button onClick={() => setShowImport(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
             </div>
 
-            {importError && (
-              <div className="mx-6 mt-4 bg-red-50 text-red-700 px-3 py-2 rounded text-sm">{importError}</div>
+            {importLog && (
+              <div className={`mx-6 mt-4 px-3 py-2 rounded text-sm ${importLog.startsWith('✅') ? 'bg-green-50 text-green-700' : importLog.startsWith('⚠️') ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                {importLog}
+              </div>
             )}
 
             <div className="overflow-auto flex-1 px-6 py-4">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium">#</th>
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium">អត្តលេខ</th>
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium">ឈ្មោះ</th>
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium">ភេទ</th>
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium">ថ្ងៃខែឆ្នាំ</th>
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium">ថ្នាក់</th>
+                    {['#','អត្តលេខ','ឈ្មោះ','ភេទ','ថ្ងៃខែឆ្នាំ','ថ្នាក់'].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-gray-600 font-medium">{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {importData.map((s, i) => (
+                  {importData.slice(0, 200).map((s, i) => (
                     <tr key={i} className="border-b hover:bg-gray-50">
                       <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                       <td className="px-3 py-2 font-mono text-blue-600 text-xs">{s.student_code}</td>
@@ -328,21 +368,20 @@ export default function StudentManagement() {
                       </td>
                     </tr>
                   ))}
+                  {importData.length > 200 && (
+                    <tr><td colSpan={6} className="text-center py-3 text-gray-400 text-xs">… និង {importData.length - 200} rows ទៀត (preview 200 ដំបូង)</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
 
             <div className="px-6 py-4 border-t flex justify-between items-center">
-              <p className="text-xs text-gray-500">
-                ⚠️ អត្តលេខដែលមានហើយនឹង update, អត្តលេខថ្មីនឹង insert
-              </p>
+              <p className="text-xs text-gray-500">⚠️ Duplicate student_code នឹង update ស្វ័យប្រវត្តិ · import ជា batch 200</p>
               <div className="flex gap-3">
-                <button onClick={() => setShowImport(false)} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                  បោះបង់
-                </button>
+                <button onClick={() => setShowImport(false)} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">បោះបង់</button>
                 <button onClick={confirmImport} disabled={importing || importData.length === 0}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 font-medium">
-                  {importing ? 'កំពុង Import…' : `✅ Import ${importData.length} rows`}
+                  {importing ? 'កំពុង Import…' : `✅ Import ${importData.length.toLocaleString()} rows`}
                 </button>
               </div>
             </div>

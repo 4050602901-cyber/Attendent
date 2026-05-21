@@ -39,33 +39,40 @@ export default function Reports() {
   async function runReport() {
     setLoading(true); setHasRun(true)
 
-    let attQ = supabase
-      .from('attendance')
-      .select('id,student_id,subject_id,date,status,students(id,name,student_code,classroom),subjects(subject_name)')
-      .gte('date', filters.dateFrom).lte('date', filters.dateTo)
-      .order('date', { ascending: false })
-
-    let hwQ = supabase
-      .from('homework_records')
-      .select('id,student_id,subject_id,date,homework_title,status,students(id,name,student_code,classroom),subjects(subject_name)')
-      .gte('date', filters.dateFrom).lte('date', filters.dateTo)
-      .order('date', { ascending: false })
-
-    if (filters.subject !== 'ទាំងអស់') {
-      attQ = attQ.eq('subject_id', filters.subject)
-      hwQ  = hwQ.eq('subject_id',  filters.subject)
+    // Fetch all pages (500/batch) to bypass Supabase 1000-row default limit
+    async function fetchAll(table, select, extraFilters = []) {
+      const BATCH = 500
+      let all = []; let from = 0; let hasMore = true
+      while (hasMore) {
+        let q = supabase.from(table).select(select)
+          .gte('date', filters.dateFrom).lte('date', filters.dateTo)
+          .order('date', { ascending: false })
+          .range(from, from + BATCH - 1)
+        if (filters.subject !== 'ទាំងអស់') q = q.eq('subject_id', filters.subject)
+        if (filters.classroom !== 'ទាំងអស់') {
+          // filter classroom via students join — handled post-fetch below
+        }
+        extraFilters.forEach(f => { q = q[f.fn](...f.args) })
+        const { data } = await q
+        const rows = data || []
+        all = all.concat(rows)
+        hasMore = rows.length === BATCH
+        from += BATCH
+      }
+      return all
     }
 
-    const [ar, hr] = await Promise.all([attQ, hwQ])
-    let att = ar.data || []
-    let hw  = hr.data || []
+    const [att, hw] = await Promise.all([
+      fetchAll('attendance',
+        'id,student_id,subject_id,date,status,students(id,name,student_code,classroom),subjects(subject_name)'),
+      fetchAll('homework_records',
+        'id,student_id,subject_id,date,homework_title,status,students(id,name,student_code,classroom),subjects(subject_name)'),
+    ])
 
-    if (filters.classroom !== 'ទាំងអស់') {
-      att = att.filter(a => a.students?.classroom === filters.classroom)
-      hw  = hw.filter(h => h.students?.classroom === filters.classroom)
-    }
+    const filtAtt = filters.classroom !== 'ទាំងអស់' ? att.filter(a => a.students?.classroom === filters.classroom) : att
+    const filtHw  = filters.classroom !== 'ទាំងអស់' ? hw.filter(h => h.students?.classroom === filters.classroom)  : hw
 
-    setAttData(att); setHwData(hw)
+    setAttData(filtAtt); setHwData(filtHw)
     setLoading(false)
   }
 
