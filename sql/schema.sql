@@ -141,3 +141,25 @@ create trigger on_auth_user_created
 -- ⚠️ IMPORTANT: After running this SQL, make yourself admin:
 --   update profiles set role = 'admin' where email = 'your-email@example.com';
 -- (replace with your actual login email)
+
+-- =====================================================
+-- DASHBOARD HELPER FUNCTIONS
+-- Run this block to fix the 1000-row classroom limit.
+-- =====================================================
+
+-- Returns every classroom with its active student count.
+-- Bypasses PostgREST row-limit; one round-trip from the browser.
+create or replace function get_classroom_stats()
+returns table(classroom text, total bigint)
+language sql security definer
+set search_path = public
+as $$
+  select classroom, count(*)::bigint as total
+  from students
+  where status = 'active'
+  group by classroom
+  order by classroom;
+$$;
+
+-- Allow anon / authenticated roles to call it
+grant execute on function get_classroom_stats() to anon, authenticated;

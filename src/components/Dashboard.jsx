@@ -48,19 +48,23 @@ export default function Dashboard() {
       }
 
       // ── Step 2: real queries with Promise.race timeout ──
-      const TIMEOUT_MS = 10000
+      const TIMEOUT_MS = 15000
       const timeout = new Promise((_, rej) =>
         setTimeout(() => rej(new Error(`Supabase REST មិនឆ្លើយក្នុង ${TIMEOUT_MS/1000}s (ping=${pingInfo})`)), TIMEOUT_MS)
       )
 
-      const [countRes, clsRes, absentRes, missingRes] = await Promise.race([
+      const [countRes, clsStatsRes, absentRes, missingRes] = await Promise.race([
         Promise.all([
+          // Total student count (HEAD — no data transfer)
           supabase.from('students').select('*', { count: 'exact', head: true }),
-          supabase.from('students').select('classroom').limit(5000),
+          // Classroom stats via server-side GROUP BY (bypasses 1000-row limit)
+          supabase.rpc('get_classroom_stats'),
+          // Today's absences
           supabase.from('attendance')
             .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
             .eq('date', todayStr).neq('status', 'វត្តមាន')
             .order('created_at', { ascending: false }),
+          // Today's missing homework count (HEAD — no data transfer)
           supabase.from('homework_records')
             .select('*', { count: 'exact', head: true })
             .eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
@@ -69,28 +73,27 @@ export default function Dashboard() {
       ])
 
       // Surface any query errors visibly for diagnosis
-      const firstError = [countRes, clsRes, absentRes, missingRes]
+      const firstError = [countRes, clsStatsRes, absentRes, missingRes]
         .map(r => r.error).find(Boolean)
       if (firstError) {
         setLoadError(`DB Error: ${firstError.message} (code: ${firstError.code})`)
         return
       }
 
-      const classRows  = clsRes.data  || []
-      const absentList = absentRes.data || []
-      const classrooms = [...new Set(classRows.map(s => s.classroom))].sort()
+      const clsStats   = clsStatsRes.data || []
+      const absentList = absentRes.data   || []
 
       setStats({
         totalStudents: countRes.count   || 0,
-        totalClasses:  classrooms.length,
+        totalClasses:  clsStats.length,
         todayAbsent:   absentList.length,
         todayMissing:  missingRes.count || 0,
       })
       setRecentAbsent(absentList.slice(0, 8))
-      setClassStats(classrooms.map(cls => ({
-        classroom: cls,
-        total:  classRows.filter(s => s.classroom === cls).length,
-        absent: absentList.filter(a => a.students?.classroom === cls).length,
+      setClassStats(clsStats.map(cls => ({
+        classroom: cls.classroom,
+        total:  cls.total,
+        absent: absentList.filter(a => a.students?.classroom === cls.classroom).length,
       })))
     } catch (e) {
       console.error('Dashboard load error:', e)
