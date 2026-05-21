@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { qdb, supabaseUrl, supabaseAnonKey } from '../lib/supabase'
+import { qdb } from '../lib/supabase'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -23,41 +23,33 @@ export default function Dashboard() {
 
   useEffect(() => { loadWithTimeout() }, [])
 
+  // Paginate all classroom rows using qdb (no JWT hang)
+  async function fetchClsStats() {
+    let all = [], from = 0, hasMore = true, page = 0
+    while (hasMore && page < 20) {
+      const { data, error } = await qdb.from('students').select('classroom').range(from, from + 499)
+      if (error || !data) break
+      all = all.concat(data)
+      hasMore = data.length === 500
+      from += 500; page++
+    }
+    const counts = {}
+    all.forEach(r => { if (r.classroom) counts[r.classroom] = (counts[r.classroom] || 0) + 1 })
+    return Object.entries(counts).map(([classroom, total]) => ({ classroom, total }))
+  }
+
   async function load() {
     try {
-      // ── Step 1: raw fetch ping to test REST API connectivity ──
-      let pingInfo = ''
-      try {
-        const ctrl = new AbortController()
-        const t = setTimeout(() => ctrl.abort(), 8000)
-        const r = await fetch(
-          `${supabaseUrl}/rest/v1/students?select=id&limit=1`,
-          { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
-            signal: ctrl.signal }
-        )
-        clearTimeout(t)
-        pingInfo = `HTTP ${r.status}`
-        if (!r.ok) {
-          const body = await r.text()
-          setLoadError(`REST API error ${r.status}: ${body}`)
-          return
-        }
-      } catch (pingErr) {
-        setLoadError(`REST API unreachable: ${pingErr.message} — URL: ${supabaseUrl}`)
-        return
-      }
-
-      // ── Step 2: real queries with Promise.race timeout ──
-      const TIMEOUT_MS = 15000
+      // All queries in parallel — qdb has no JWT refresh so won't hang
+      const TIMEOUT_MS = 20000
       const timeout = new Promise((_, rej) =>
-        setTimeout(() => rej(new Error(`Supabase REST មិនឆ្លើយក្នុង ${TIMEOUT_MS/1000}s (ping=${pingInfo})`)), TIMEOUT_MS)
+        setTimeout(() => rej(new Error('Timeout — Dashboard queries took > 20s')), TIMEOUT_MS)
       )
 
-      const [countRes, clsStatsRes, absentRes, missingRes] = await Promise.race([
+      const [clsStats, countRes, absentRes, missingRes] = await Promise.race([
         Promise.all([
-          // Use qdb (anon, no JWT refresh) to avoid the token-refresh hang
+          fetchClsStats(),   // paginated classroom counts — no SQL function needed
           qdb.from('students').select('*', { count: 'exact', head: true }),
-          qdb.rpc('get_classroom_stats'),
           qdb.from('attendance')
             .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
             .eq('date', todayStr).neq('status', 'វត្តមាន')
@@ -69,19 +61,17 @@ export default function Dashboard() {
         timeout,
       ])
 
-      // Surface any query errors visibly for diagnosis
-      const firstError = [countRes, clsStatsRes, absentRes, missingRes]
-        .map(r => r.error).find(Boolean)
+      // Surface query errors
+      const firstError = [countRes, absentRes, missingRes].map(r => r.error).find(Boolean)
       if (firstError) {
         setLoadError(`DB Error: ${firstError.message} (code: ${firstError.code})`)
         return
       }
 
-      const clsStats   = clsStatsRes.data || []
-      const absentList = absentRes.data   || []
+      const absentList = absentRes.data || []
 
       setStats({
-        totalStudents: countRes.count   || 0,
+        totalStudents: countRes.count || 0,
         totalClasses:  clsStats.length,
         todayAbsent:   absentList.length,
         todayMissing:  missingRes.count || 0,
@@ -89,8 +79,8 @@ export default function Dashboard() {
       setRecentAbsent(absentList.slice(0, 8))
       setClassStats(clsStats.map(cls => ({
         classroom: cls.classroom,
-        total:  cls.total,
-        absent: absentList.filter(a => a.students?.classroom === cls.classroom).length,
+        total:     cls.total,
+        absent:    absentList.filter(a => a.students?.classroom === cls.classroom).length,
       })))
     } catch (e) {
       console.error('Dashboard load error:', e)
@@ -116,40 +106,16 @@ export default function Dashboard() {
   )
 
   if (loadError) return (
-    <div className="py-12 px-4 max-w-xl mx-auto">
-      <div className="text-center mb-6">
-        <div className="text-4xl mb-2">⚠️</div>
-        <div className="text-gray-700 font-semibold mb-1">មានបញ្ហាក្នុងការភ្ជាប់ Supabase</div>
-      </div>
-
-      {/* Error detail */}
-      <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-        <div className="text-xs text-red-500 font-medium mb-1">Error:</div>
+    <div className="py-16 px-4 max-w-lg mx-auto text-center">
+      <div className="text-4xl mb-3">⚠️</div>
+      <div className="text-gray-700 font-semibold mb-3">មានបញ្ហាក្នុងការផ្ទុកទិន្នន័យ</div>
+      <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5 text-left">
         <code className="text-red-700 text-xs break-all">{loadError}</code>
       </div>
-
-      {/* URL in use */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 text-xs">
-        <div className="text-gray-500 font-medium mb-1">Supabase URL ដែលប្រើ:</div>
-        <code className="text-gray-700 break-all">{supabaseUrl || '(មិនបានកំណត់)'}</code>
-      </div>
-
-      {/* Checklist */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-5 text-xs text-blue-800 space-y-1">
-        <div className="font-semibold mb-2">✅ សូមពិនិត្យ:</div>
-        <div>1. <strong>Netlify → Site Settings → Environment Variables</strong> — មាន VITE_SUPABASE_URL និង VITE_SUPABASE_ANON_KEY?</div>
-        <div>2. <strong>Supabase → Table Editor</strong> — មានតារាង students, attendance, homework_records?</div>
-        <div>3. <strong>Supabase → Project Settings → API</strong> — URL ត្រូវគ្នា?</div>
-        <div>4. បន្ទាប់ពីកំណត់ ENV ក្នុង Netlify ត្រូវ <strong>Redeploy</strong> ម្ដងទៀត</div>
-      </div>
-
-      <div className="text-center">
-        <button
-          onClick={loadWithTimeout}
-          className="bg-blue-600 text-white text-sm px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-          🔄 ព្យាយាម​ម្ដងទៀត
-        </button>
-      </div>
+      <button onClick={loadWithTimeout}
+        className="bg-blue-600 text-white text-sm px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+        🔄 ព្យាយាម​ម្ដងទៀត
+      </button>
     </div>
   )
 
