@@ -54,46 +54,18 @@ export default function UserManagement({ profile }) {
     if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
   }
 
-  // ── Create one account ───────────────────────────────────────────────────
+  // ── Create one account via SQL RPC (no rate limit, no email confirmation) ──
   async function signUpOne(full_name, email, password, role, classroom = '') {
-    // adminDb uses service role key → no rate limit, no email confirmation needed
-    if (adminDb) {
-      const { data, error: err } = await adminDb.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,   // auto-confirm, no email sent
-        user_metadata: { full_name, role },
-      })
-      if (err) return { ok: false, msg: err.message }
-      if (data.user) {
-        const profileData = { id: data.user.id, full_name, email, role }
-        if (role === 'mstudent') profileData.classroom = classroom
-        await adminDb.from('profiles').upsert(profileData, { onConflict: 'id' })
-      }
-      return { ok: true, msg: 'Active' }
-    }
-
-    // Fallback: regular signUp (subject to rate limits)
-    const { data: { session: adminSess } } = await supabase.auth.getSession()
-    const { data, error: err } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name, role } },
+    const { data, error } = await (qdb || supabase).rpc('bulk_create_user', {
+      p_email:     email,
+      p_password:  password,
+      p_full_name: full_name,
+      p_role:      role,
+      p_classroom: role === 'mstudent' ? classroom : '',
     })
-    if (err) return { ok: false, msg: err.message }
-    if (data.session && adminSess) {
-      try {
-        await supabase.auth.setSession({
-          access_token:  adminSess.access_token,
-          refresh_token: adminSess.refresh_token,
-        })
-      } catch { /* ignore */ }
-    }
-    if (data.user) {
-      const profileData = { id: data.user.id, full_name, email, role }
-      if (role === 'mstudent') profileData.classroom = classroom
-      await supabase.from('profiles').upsert(profileData, { onConflict: 'id' })
-    }
-    return { ok: true, msg: data.session ? 'Active' : 'Pending email confirm' }
+    if (error) return { ok: false, msg: error.message }
+    if (!data?.ok) return { ok: false, msg: data?.msg || 'error' }
+    return { ok: true, msg: data.msg === 'created' ? 'Active' : 'Updated' }
   }
 
   // ── Single form create ───────────────────────────────────────────────────
