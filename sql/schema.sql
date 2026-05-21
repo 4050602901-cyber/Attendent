@@ -163,3 +163,28 @@ $$;
 
 -- Allow anon / authenticated roles to call it
 grant execute on function get_classroom_stats() to anon, authenticated;
+
+-- =====================================================
+-- MSTUDENT (ប្រធានថ្នាក់) ROLE
+-- =====================================================
+-- Add classroom column to profiles (which class this mstudent monitors)
+alter table profiles add column if not exists classroom varchar(30) default '';
+
+-- Update profiles role check to allow mstudent
+alter table profiles drop constraint if exists profiles_role_check;
+alter table profiles add constraint profiles_role_check
+  check (role in ('admin','teacher','mstudent'));
+
+-- Teacher attendance table
+create table if not exists teacher_attendance (
+  id          bigserial    primary key,
+  teacher_id  uuid         references profiles(id) on delete cascade,
+  date        date         not null default current_date,
+  status      varchar(20)  not null default 'វត្តមាន',
+  note        text         default '',
+  created_at  timestamptz  default now(),
+  constraint teacher_att_unique unique (teacher_id, date)
+);
+alter table teacher_attendance enable row level security;
+create policy "allow_all_teacher_att" on teacher_attendance for all using (true) with check (true);
+create index if not exists idx_teacher_att_date on teacher_attendance(date);

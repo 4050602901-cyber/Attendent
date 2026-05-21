@@ -10,13 +10,16 @@ const STATUS_OPTS = [
 ]
 const INACTIVE = 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
 
-export default function AttendanceTracking() {
+export default function AttendanceTracking({ profile }) {
+  const isMStudent = profile?.role === 'mstudent'
+  const mstudentClass = profile?.classroom || ''
+
   const [subjects,  setSubjects]  = useState([])
   const [classrooms, setClassrooms] = useState([])
   const [students,  setStudents]  = useState([])
   const [attendance, setAttendance] = useState({})
   const [date,      setDate]      = useState(today())
-  const [classroom, setClassroom] = useState('')
+  const [classroom, setClassroom] = useState(isMStudent ? mstudentClass : '')
   const [subjectId, setSubjectId] = useState('')
   const [loading,   setLoading]   = useState(false)
   const [saving,    setSaving]    = useState(false)
@@ -32,8 +35,14 @@ export default function AttendanceTracking() {
     ])
     const subs = subRes.data || []
     setSubjects(subs)
-    setClassrooms(cls)
-    if (cls.length)  setClassroom(cls[0])
+    if (!isMStudent) {
+      setClassrooms(cls)
+      if (cls.length) setClassroom(cls[0])
+    } else {
+      // mstudent: keep their assigned classroom, no need to load all classrooms
+      setClassrooms(mstudentClass ? [mstudentClass] : cls)
+      setClassroom(mstudentClass || (cls.length ? cls[0] : ''))
+    }
     if (subs.length) setSubjectId(String(subs[0].id))
   }
 
@@ -94,12 +103,24 @@ export default function AttendanceTracking() {
             className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <SearchableSelect
-            label="ថ្នាក់រៀន"
-            value={classroom}
-            onChange={setClassroom}
-            options={classrooms}
-          />
+          {isMStudent
+            ? (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ថ្នាក់រៀន</label>
+                <div className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-600">
+                  {classroom || '—'}
+                </div>
+              </div>
+            )
+            : (
+              <SearchableSelect
+                label="ថ្នាក់រៀន"
+                value={classroom}
+                onChange={setClassroom}
+                options={classrooms}
+              />
+            )
+          }
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">មុខវិជ្ជា</label>

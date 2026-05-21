@@ -1,22 +1,36 @@
 import React from 'react'
 
-// Tabs visible to everyone
-const COMMON_TABS = [
-  { id: 'dashboard',  label: 'Dashboard',     icon: '🏠' },
-  { id: 'attendance', label: 'វត្តមាន',        icon: '📋' },
-  { id: 'homework',   label: 'កិច្ចការ',        icon: '📝' },
-  { id: 'reports',    label: 'របាយការណ៍',      icon: '📊' },
-]
-
-// Additional tabs only for Admin
+// Tabs visible to admin
 const ADMIN_TABS = [
-  { id: 'students',   label: 'គ្រប់គ្រងសិស្ស', icon: '👨‍🎓' },
-  { id: 'subjects',   label: 'មុខវិជ្ជា',       icon: '📚' },
-  { id: 'users',      label: 'Account',         icon: '👥' },
+  { id: 'dashboard',  label: 'Dashboard',        icon: '🏠' },
+  { id: 'attendance', label: 'វត្តមាន',           icon: '📋' },
+  { id: 'homework',   label: 'កិច្ចការ',           icon: '📝' },
+  { id: 'reports',    label: 'របាយការណ៍',         icon: '📊' },
+  { id: 'students',   label: 'គ្រប់គ្រងសិស្ស',    icon: '👨‍🎓' },
+  { id: 'subjects',   label: 'មុខវិជ្ជា',          icon: '📚' },
+  { id: 'users',      label: 'Account',            icon: '👥' },
 ]
 
-export default function Navigation({ activeTab, setActiveTab, isAdmin = false }) {
-  const tabs = isAdmin ? [...COMMON_TABS, ...ADMIN_TABS] : COMMON_TABS
+// Tabs visible to teacher
+const TEACHER_TABS = [
+  { id: 'dashboard',  label: 'Dashboard',        icon: '🏠' },
+  { id: 'attendance', label: 'វត្តមាន',           icon: '📋' },
+  { id: 'homework',   label: 'កិច្ចការ',           icon: '📝' },
+  { id: 'reports',    label: 'របាយការណ៍',         icon: '📊' },
+]
+
+// Tabs visible to mstudent (ប្រធានថ្នាក់)
+const MSTUDENT_TABS = [
+  { id: 'dashboard',   label: 'Dashboard',       icon: '🏠' },
+  { id: 'attendance',  label: 'វត្តមានសិស្ស',    icon: '📋' },
+  { id: 'teacher-att', label: 'វត្តមានគ្រូ',     icon: '👨‍🏫' },
+]
+
+export default function Navigation({ activeTab, setActiveTab, isAdmin = false, isMStudent = false }) {
+  let tabs
+  if (isAdmin)    tabs = ADMIN_TABS
+  else if (isMStudent) tabs = MSTUDENT_TABS
+  else            tabs = TEACHER_TABS
 
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm no-print">

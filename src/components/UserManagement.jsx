@@ -3,16 +3,19 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
 const ROLE_META = {
-  admin:   { label: '👑 Admin',   cls: 'bg-purple-100 text-purple-700' },
-  teacher: { label: '👨‍🏫 Teacher', cls: 'bg-blue-100 text-blue-700'    },
+  admin:    { label: '👑 Admin',        cls: 'bg-purple-100 text-purple-700' },
+  teacher:  { label: '👨‍🏫 Teacher',     cls: 'bg-blue-100   text-blue-700'   },
+  mstudent: { label: '🎓 ប្រធានថ្នាក់', cls: 'bg-green-100  text-green-700'  },
 }
 
-const EMPTY = { email: '', password: '', full_name: '', role: 'teacher' }
+const EMPTY = { email: '', password: '', full_name: '', role: 'teacher', classroom: '' }
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function normaliseRole(raw = '') {
   const v = String(raw).trim().toLowerCase()
-  return v === 'admin' ? 'admin' : 'teacher'
+  if (v === 'admin')    return 'admin'
+  if (v === 'mstudent') return 'mstudent'
+  return 'teacher'
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
@@ -49,7 +52,7 @@ export default function UserManagement({ profile }) {
   }
 
   // ── Create one account ───────────────────────────────────────────────────
-  async function signUpOne(full_name, email, password, role) {
+  async function signUpOne(full_name, email, password, role, classroom = '') {
     const { data: { session: adminSess } } = await supabase.auth.getSession()
 
     const { data, error: err } = await supabase.auth.signUp({
@@ -69,10 +72,9 @@ export default function UserManagement({ profile }) {
     }
 
     if (data.user) {
-      await supabase.from('profiles').upsert(
-        { id: data.user.id, full_name, email, role },
-        { onConflict: 'id' }
-      )
+      const profileData = { id: data.user.id, full_name, email, role }
+      if (role === 'mstudent') profileData.classroom = classroom
+      await supabase.from('profiles').upsert(profileData, { onConflict: 'id' })
     }
     return { ok: true, msg: data.session ? 'Active' : 'Pending email confirm' }
   }
@@ -83,8 +85,14 @@ export default function UserManagement({ profile }) {
       setError('សូមបំពេញ ឈ្មោះ, Email និង ពាក្យសម្ងាត់'); return
     }
     if (form.password.length < 6) { setError('ពាក្យសម្ងាត់ត្រូវ ≥ 6 អក្សរ'); return }
+    if (form.role === 'mstudent' && !form.classroom.trim()) {
+      setError('សូមបំពេញ ថ្នាក់រៀន សម្រាប់ ប្រធានថ្នាក់'); return
+    }
     setSaving(true); setError(''); setSuccess('')
-    const { ok, msg } = await signUpOne(form.full_name.trim(), form.email.trim(), form.password, form.role)
+    const { ok, msg } = await signUpOne(
+      form.full_name.trim(), form.email.trim(), form.password, form.role,
+      form.role === 'mstudent' ? form.classroom.trim() : ''
+    )
     if (!ok) { setError(msg) } else { setSuccess(`✅ បង្កើតរួច: ${form.email} (${msg})`); setForm(EMPTY); setTimeout(loadUsers, 800) }
     setSaving(false)
   }
@@ -221,6 +229,7 @@ export default function UserManagement({ profile }) {
                                     className={`text-xs px-2 py-1 rounded-full font-medium border-0 cursor-pointer outline-none ${rm.cls}`}>
                                     <option value="teacher">👨‍🏫 Teacher</option>
                                     <option value="admin">👑 Admin</option>
+                                    <option value="mstudent">🎓 ប្រធានថ្នាក់</option>
                                   </select>
                                 )}
                             </td>
@@ -273,12 +282,27 @@ export default function UserManagement({ profile }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">តួនាទី</label>
-              <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}
+              <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value, classroom: '' })}
                 className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="teacher">👨‍🏫 Teacher — វត្តមាន / កិច្ចការ / របាយការណ៍ / Dashboard</option>
                 <option value="admin">👑 Admin — ចូលប្រើ / គ្រប់គ្រងបានគ្រប់ Tab</option>
+                <option value="mstudent">🎓 ប្រធានថ្នាក់ — វត្តមានសិស្ស / វត្តមានគ្រូ</option>
               </select>
             </div>
+
+            {form.role === 'mstudent' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ថ្នាក់រៀន *</label>
+                <input
+                  type="text"
+                  value={form.classroom}
+                  onChange={e => setForm({ ...form, classroom: e.target.value })}
+                  placeholder="ឧ. 12A, 11B, 10C"
+                  className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-400 mt-1">ប្រធានថ្នាក់នឹងអាចមើលតែថ្នាក់នេះប៉ុណ្ណោះ</p>
+              </div>
+            )}
 
             <button onClick={createAccount} disabled={saving}
               className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors">

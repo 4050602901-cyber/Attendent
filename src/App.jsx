@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { supabase, qdb, isConfigured } from './lib/supabase'
-import Navigation       from './components/Navigation'
-import Login            from './components/Login'
-import Dashboard        from './components/Dashboard'
-import StudentManagement from './components/StudentManagement'
+import Navigation         from './components/Navigation'
+import Login              from './components/Login'
+import Dashboard          from './components/Dashboard'
+import StudentManagement  from './components/StudentManagement'
 import AttendanceTracking from './components/AttendanceTracking'
-import HomeworkTracking from './components/HomeworkTracking'
-import Reports          from './components/Reports'
-import SubjectManagement from './components/SubjectManagement'
-import UserManagement   from './components/UserManagement'
+import HomeworkTracking   from './components/HomeworkTracking'
+import Reports            from './components/Reports'
+import SubjectManagement  from './components/SubjectManagement'
+import UserManagement     from './components/UserManagement'
+import TeacherAttendance  from './components/TeacherAttendance'
 
 export default function App() {
   const [session,     setSession]     = useState(null)
@@ -74,7 +75,8 @@ export default function App() {
     window.location.reload()
   }
 
-  const isAdmin = profile?.role === 'admin'
+  const isAdmin    = profile?.role === 'admin'
+  const isMStudent = profile?.role === 'mstudent'
 
   /* ── Not configured ── */
   if (!isConfigured) {
@@ -128,9 +130,11 @@ export default function App() {
             {/* Role badge */}
             {profile && (
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline ${
-                isAdmin ? 'bg-purple-500 text-white' : 'bg-blue-500 text-blue-100'
+                isAdmin    ? 'bg-purple-500 text-white' :
+                isMStudent ? 'bg-green-500  text-white' :
+                             'bg-blue-500   text-blue-100'
               }`}>
-                {isAdmin ? '👑 Admin' : '👨‍🏫 Teacher'}
+                {isAdmin ? '👑 Admin' : isMStudent ? '🎓 ប្រធានថ្នាក់' : '👨‍🏫 Teacher'}
               </span>
             )}
             <span className="text-blue-200 text-xs hidden sm:block">
@@ -145,17 +149,19 @@ export default function App() {
         </div>
       </header>
 
-      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} isAdmin={isAdmin} />
+      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} isAdmin={isAdmin} isMStudent={isMStudent} />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {activeTab === 'dashboard'  && <Dashboard />}
-        {activeTab === 'attendance' && <AttendanceTracking />}
-        {activeTab === 'homework'   && <HomeworkTracking />}
-        {activeTab === 'reports'    && <Reports />}
+        {activeTab === 'dashboard'   && <Dashboard />}
+        {activeTab === 'attendance'  && <AttendanceTracking profile={profile} />}
+        {activeTab === 'homework'    && !isMStudent && <HomeworkTracking />}
+        {activeTab === 'reports'     && !isMStudent && <Reports />}
+        {/* mstudent-only tab */}
+        {activeTab === 'teacher-att' && isMStudent && <TeacherAttendance />}
         {/* Admin-only tabs */}
-        {activeTab === 'students'   && isAdmin && <StudentManagement />}
-        {activeTab === 'subjects'   && isAdmin && <SubjectManagement />}
-        {activeTab === 'users'      && isAdmin && <UserManagement profile={profile} />}
+        {activeTab === 'students'    && isAdmin && <StudentManagement />}
+        {activeTab === 'subjects'    && isAdmin && <SubjectManagement />}
+        {activeTab === 'users'       && isAdmin && <UserManagement profile={profile} />}
       </main>
     </div>
   )
