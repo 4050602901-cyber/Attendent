@@ -14,21 +14,39 @@ export default function Dashboard() {
 
   async function load() {
     setLoading(true)
-    const [studsRes, absentRes, missingRes] = await Promise.all([
-      supabase.from('students').select('id, classroom'),
+
+    // ── 1. Total student count (HEAD request — zero data transfer) ──
+    const { count: totalStudents } = await supabase
+      .from('students').select('*', { count: 'exact', head: true })
+
+    // ── 2. Fetch ALL classrooms in batches (bypasses 1000-row limit) ──
+    const BATCH = 500
+    let allStudents = []; let from = 0; let hasMore = true
+    while (hasMore) {
+      const { data } = await supabase
+        .from('students').select('classroom')
+        .range(from, from + BATCH - 1)
+      const rows = data || []
+      allStudents = allStudents.concat(rows)
+      hasMore = rows.length === BATCH
+      from += BATCH
+    }
+
+    // ── 3. Today's attendance & homework (filtered by date → small set) ──
+    const [absentRes, missingRes] = await Promise.all([
       supabase.from('attendance')
         .select('id, status, date, students(name, student_code, classroom), subjects(subject_name)')
         .eq('date', todayStr).neq('status', 'វត្តមាន')
         .order('created_at', { ascending: false }),
-      supabase.from('homework_records').select('id').eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
+      supabase.from('homework_records')
+        .select('id').eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
     ])
 
-    const students  = studsRes.data  || []
     const absentList = absentRes.data || []
-    const classrooms = [...new Set(students.map(s => s.classroom))].sort()
+    const classrooms = [...new Set(allStudents.map(s => s.classroom))].sort()
 
     setStats({
-      totalStudents: students.length,
+      totalStudents: totalStudents || 0,
       totalClasses:  classrooms.length,
       todayAbsent:   absentList.length,
       todayMissing:  (missingRes.data || []).length,
@@ -36,7 +54,7 @@ export default function Dashboard() {
     setRecentAbsent(absentList.slice(0, 8))
     setClassStats(classrooms.map(cls => ({
       classroom: cls,
-      total:  students.filter(s => s.classroom === cls).length,
+      total:  allStudents.filter(s => s.classroom === cls).length,
       absent: absentList.filter(a => a.students?.classroom === cls).length,
     })))
     setLoading(false)
