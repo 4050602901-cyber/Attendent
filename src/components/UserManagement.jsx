@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../lib/supabase'
+import { supabase, adminDb, qdb } from '../lib/supabase'
+
+// Use adminDb if available (bypasses rate limits), fall back to supabase
+const authClient = adminDb || supabase
 
 const ROLE_META = {
   admin:    { label: '👑 Admin',        cls: 'bg-purple-100 text-purple-700' },
@@ -39,7 +42,7 @@ export default function UserManagement({ profile }) {
 
   async function loadUsers() {
     setLoading(true)
-    const { data } = await supabase.from('profiles').select('*').order('created_at')
+    const { data } = await (qdb || supabase).from('profiles').select('*').order('created_at')
     setUsers(data || [])
     setLoading(false)
   }
@@ -47,21 +50,36 @@ export default function UserManagement({ profile }) {
   // ── Change role ──────────────────────────────────────────────────────────
   async function changeRole(userId, newRole) {
     if (userId === profile?.id) return
-    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
+    const { error } = await (qdb || supabase).from('profiles').update({ role: newRole }).eq('id', userId)
     if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
   }
 
   // ── Create one account ───────────────────────────────────────────────────
   async function signUpOne(full_name, email, password, role, classroom = '') {
-    const { data: { session: adminSess } } = await supabase.auth.getSession()
+    // adminDb uses service role key → no rate limit, no email confirmation needed
+    if (adminDb) {
+      const { data, error: err } = await adminDb.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,   // auto-confirm, no email sent
+        user_metadata: { full_name, role },
+      })
+      if (err) return { ok: false, msg: err.message }
+      if (data.user) {
+        const profileData = { id: data.user.id, full_name, email, role }
+        if (role === 'mstudent') profileData.classroom = classroom
+        await adminDb.from('profiles').upsert(profileData, { onConflict: 'id' })
+      }
+      return { ok: true, msg: 'Active' }
+    }
 
+    // Fallback: regular signUp (subject to rate limits)
+    const { data: { session: adminSess } } = await supabase.auth.getSession()
     const { data, error: err } = await supabase.auth.signUp({
       email, password,
       options: { data: { full_name, role } },
     })
     if (err) return { ok: false, msg: err.message }
-
-    // Restore admin session if signUp replaced it
     if (data.session && adminSess) {
       try {
         await supabase.auth.setSession({
@@ -70,7 +88,6 @@ export default function UserManagement({ profile }) {
         })
       } catch { /* ignore */ }
     }
-
     if (data.user) {
       const profileData = { id: data.user.id, full_name, email, role }
       if (role === 'mstudent') profileData.classroom = classroom
