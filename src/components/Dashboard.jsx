@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { fetchAllBatch } from '../lib/fetchAll'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -16,33 +15,31 @@ export default function Dashboard() {
   async function load() {
     setLoading(true)
     try {
-      // ── 1. Total student count ──
-      const { count: totalStudents } = await supabase
-        .from('students').select('*', { count: 'exact', head: true })
-
-      // ── 2. Classroom rows in batches ──
-      const classRows = await fetchAllBatch(
-        () => supabase.from('students').select('classroom')
-      )
-
-      // ── 3. Today's queries ──
-      const [absentRes, missingRes] = await Promise.all([
+      // All 4 queries fire in parallel — no sequential waiting
+      const [countRes, clsRes, absentRes, missingRes] = await Promise.all([
+        supabase.from('students')
+          .select('*', { count: 'exact', head: true }),
+        supabase.from('students')
+          .select('classroom')
+          .limit(5000),
         supabase.from('attendance')
           .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
           .eq('date', todayStr).neq('status', 'វត្តមាន')
           .order('created_at', { ascending: false }),
         supabase.from('homework_records')
-          .select('id').eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
+          .select('*', { count: 'exact', head: true })
+          .eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
       ])
 
+      const classRows  = clsRes.data  || []
       const absentList = absentRes.data || []
       const classrooms = [...new Set(classRows.map(s => s.classroom))].sort()
 
       setStats({
-        totalStudents: totalStudents || 0,
+        totalStudents: countRes.count   || 0,
         totalClasses:  classrooms.length,
         todayAbsent:   absentList.length,
-        todayMissing:  (missingRes.data || []).length,
+        todayMissing:  missingRes.count || 0,
       })
       setRecentAbsent(absentList.slice(0, 8))
       setClassStats(classrooms.map(cls => ({
@@ -53,7 +50,7 @@ export default function Dashboard() {
     } catch (e) {
       console.error('Dashboard load error:', e)
     } finally {
-      setLoading(false)   // ← always clears loading, even on error
+      setLoading(false)   // always clears loading, even on error
     }
   }
 
