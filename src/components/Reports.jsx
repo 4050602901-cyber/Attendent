@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../lib/supabase'
+import { qdb as supabase } from '../lib/supabase'
 import { fetchAllClassrooms } from '../lib/fetchAll'
 import SearchableSelect from './SearchableSelect'
 

@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { qdb as supabase } from './supabase'
 
 /**
  * Fetch every row from a Supabase query in 500-row batches.
