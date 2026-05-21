@@ -7,6 +7,8 @@ export const isConfigured =
   !!(supabaseUrl && supabaseAnonKey &&
      supabaseUrl !== 'https://your-project-id.supabase.co')
 
+export { supabaseUrl, supabaseAnonKey }
+
 export const supabase = isConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null

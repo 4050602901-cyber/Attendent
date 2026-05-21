@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseUrl } from '../lib/supabase'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -25,21 +25,30 @@ export default function Dashboard() {
 
   async function load() {
     try {
+      // AbortController: cancel queries after 12 s to get a real error message
+      const ctrl = new AbortController()
+      const abortTimer = setTimeout(() => ctrl.abort(), 12000)
+
       // All 4 queries fire in parallel — no sequential waiting
       const [countRes, clsRes, absentRes, missingRes] = await Promise.all([
         supabase.from('students')
-          .select('*', { count: 'exact', head: true }),
+          .select('*', { count: 'exact', head: true })
+          .abortSignal(ctrl.signal),
         supabase.from('students')
           .select('classroom')
-          .limit(5000),
+          .limit(5000)
+          .abortSignal(ctrl.signal),
         supabase.from('attendance')
           .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
           .eq('date', todayStr).neq('status', 'វត្តមាន')
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .abortSignal(ctrl.signal),
         supabase.from('homework_records')
           .select('*', { count: 'exact', head: true })
-          .eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
+          .eq('date', todayStr).eq('status', 'មិនបានធ្វើ')
+          .abortSignal(ctrl.signal),
       ])
+      clearTimeout(abortTimer)
 
       // Surface any query errors visibly for diagnosis
       const firstError = [countRes, clsRes, absentRes, missingRes]
@@ -89,18 +98,40 @@ export default function Dashboard() {
   )
 
   if (loadError) return (
-    <div className="text-center py-20 px-4">
-      <div className="text-4xl mb-3">⚠️</div>
-      <div className="text-gray-700 text-sm font-medium mb-2">មានបញ្ហាក្នុងការផ្ទុកទិន្នន័យ</div>
-      <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-left inline-block max-w-lg mb-4">
+    <div className="py-12 px-4 max-w-xl mx-auto">
+      <div className="text-center mb-6">
+        <div className="text-4xl mb-2">⚠️</div>
+        <div className="text-gray-700 font-semibold mb-1">មានបញ្ហាក្នុងការភ្ជាប់ Supabase</div>
+      </div>
+
+      {/* Error detail */}
+      <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+        <div className="text-xs text-red-500 font-medium mb-1">Error:</div>
         <code className="text-red-700 text-xs break-all">{loadError}</code>
       </div>
-      <br/>
-      <button
-        onClick={loadWithTimeout}
-        className="bg-blue-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-        🔄 ព្យាយាម​ម្ដងទៀត
-      </button>
+
+      {/* URL in use */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 text-xs">
+        <div className="text-gray-500 font-medium mb-1">Supabase URL ដែលប្រើ:</div>
+        <code className="text-gray-700 break-all">{supabaseUrl || '(មិនបានកំណត់)'}</code>
+      </div>
+
+      {/* Checklist */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-5 text-xs text-blue-800 space-y-1">
+        <div className="font-semibold mb-2">✅ សូមពិនិត្យ:</div>
+        <div>1. <strong>Netlify → Site Settings → Environment Variables</strong> — មាន VITE_SUPABASE_URL និង VITE_SUPABASE_ANON_KEY?</div>
+        <div>2. <strong>Supabase → Table Editor</strong> — មានតារាង students, attendance, homework_records?</div>
+        <div>3. <strong>Supabase → Project Settings → API</strong> — URL ត្រូវគ្នា?</div>
+        <div>4. បន្ទាប់ពីកំណត់ ENV ក្នុង Netlify ត្រូវ <strong>Redeploy</strong> ម្ដងទៀត</div>
+      </div>
+
+      <div className="text-center">
+        <button
+          onClick={loadWithTimeout}
+          className="bg-blue-600 text-white text-sm px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+          🔄 ព្យាយាម​ម្ដងទៀត
+        </button>
+      </div>
     </div>
   )
 
