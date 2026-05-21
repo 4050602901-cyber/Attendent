@@ -72,9 +72,18 @@ export default function StudentManagement() {
   }
 
   useEffect(() => {
-    supabase.from('students').select('classroom').then(({ data }) => {
-      if (data) setClassrooms(['ទាំងអស់', ...new Set(data.map(s => s.classroom)).values()])
-    })
+    // Fetch ALL classrooms in batches (bypasses 1000-row limit)
+    ;(async () => {
+      const BATCH = 500; let all = []; let from = 0; let hasMore = true
+      while (hasMore) {
+        const { data } = await supabase.from('students').select('classroom').range(from, from + BATCH - 1)
+        const rows = data || []
+        all = all.concat(rows)
+        hasMore = rows.length === BATCH
+        from += BATCH
+      }
+      setClassrooms(['ទាំងអស់', ...[...new Set(all.map(r => r.classroom))].sort()])
+    })()
   }, [])
 
   /* ── Add / Edit ── */
@@ -248,14 +257,21 @@ export default function StudentManagement() {
     }
   }
 
-  /* ── Excel: Export ── */
+  /* ── Excel: Export ALL rows in batches (no 1000-row cap) ── */
   async function exportStudents() {
-    let q = supabase.from('students').select('*').order('classroom').order('name').range(0, 999)
-    if (filterClass  !== 'ទាំងអស់') q = q.eq('classroom', filterClass)
-    if (filterStatus !== 'ទាំងអស់') q = q.eq('status', filterStatus)
-    if (search.trim())               q = q.or(`name.ilike.%${search.trim()}%,student_code.ilike.%${search.trim()}%`)
-    const { data } = await q
-    const rows = (data || []).map((s, i) => ({
+    const BATCH = 500; let all = []; let from = 0; let hasMore = true
+    while (hasMore) {
+      let q = supabase.from('students').select('*').order('classroom').order('name').range(from, from + BATCH - 1)
+      if (filterClass  !== 'ទាំងអស់') q = q.eq('classroom', filterClass)
+      if (filterStatus !== 'ទាំងអស់') q = q.eq('status', filterStatus)
+      if (search.trim())               q = q.or(`name.ilike.%${search.trim()}%,student_code.ilike.%${search.trim()}%`)
+      const { data } = await q
+      const rows = data || []
+      all = all.concat(rows)
+      hasMore = rows.length === BATCH
+      from += BATCH
+    }
+    const exRows = all.map((s, i) => ({
       'ល.រ':        i + 1,
       'អត្តលេខ':   s.student_code,
       'ឈ្មោះ':     s.name,
@@ -264,11 +280,11 @@ export default function StudentManagement() {
       'ថ្នាក់':     s.classroom,
       'ស្ថានភាព':  STATUS_META[s.status || 'active']?.label ?? s.status,
     }))
-    const ws = XLSX.utils.json_to_sheet(rows)
+    const ws = XLSX.utils.json_to_sheet(exRows)
     ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 22 }, { wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 12 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'សិស្ស')
-    XLSX.writeFile(wb, `sisso-${filterClass !== 'ទាំងអស់' ? filterClass : 'toangos'}.xlsx`)
+    XLSX.writeFile(wb, `sisso-${filterClass !== 'ទាំងអស់' ? filterClass : 'toangos'}-${all.length}rows.xlsx`)
   }
 
   const totalPages     = Math.ceil(total / PAGE_SIZE)

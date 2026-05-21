@@ -28,12 +28,20 @@ export default function Reports() {
   useEffect(() => { loadMeta() }, [])
 
   async function loadMeta() {
-    const [s, c] = await Promise.all([
-      supabase.from('subjects').select('*').order('subject_name'),
-      supabase.from('students').select('classroom'),
-    ])
-    setSubjects(s.data || [])
-    setClassrooms([...new Set((c.data || []).map(r => r.classroom))].sort())
+    // Subjects: typically < 50, single fetch is fine
+    const { data: subData } = await supabase.from('subjects').select('*').order('subject_name')
+    setSubjects(subData || [])
+
+    // Classrooms: fetch ALL student rows in batches to get full distinct set
+    const BATCH = 500; let all = []; let from = 0; let hasMore = true
+    while (hasMore) {
+      const { data } = await supabase.from('students').select('classroom').range(from, from + BATCH - 1)
+      const rows = data || []
+      all = all.concat(rows)
+      hasMore = rows.length === BATCH
+      from += BATCH
+    }
+    setClassrooms([...new Set(all.map(r => r.classroom))].sort())
   }
 
   async function runReport() {
