@@ -16,9 +16,18 @@ const EMPTY = { email: '', password: '', full_name: '', role: 'teacher', classro
 // ── helpers ────────────────────────────────────────────────────────────────
 function normaliseRole(raw = '') {
   const v = String(raw).trim().toLowerCase()
-  if (v === 'admin')    return 'admin'
-  if (v === 'mstudent') return 'mstudent'
+  if (v === 'admin') return 'admin'
+  // Accept both 'mstudent' and Khmer 'ប្រធានថ្នាក់'
+  if (v === 'mstudent' || raw.trim() === 'ប្រធានថ្នាក់') return 'mstudent'
   return 'teacher'
+}
+
+// Extract classroom from email if not provided
+// e.g. grade12A@gmail.com → "12A", class10b@school.kh → "10B"
+function extractClassroom(email = '') {
+  const user = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '')
+  const match = user.match(/(\d{1,2}[A-Za-z]?)$/i)
+  return match ? match[1].toUpperCase() : ''
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
@@ -32,8 +41,15 @@ export default function UserManagement({ profile }) {
   const [error,      setError]      = useState('')
   const [success,    setSuccess]    = useState('')
 
+  // edit / delete state
+  const [editingId,  setEditingId]  = useState(null)
+  const [editForm,   setEditForm]   = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+  const [deleteId,   setDeleteId]   = useState(null)   // confirm modal
+  const [deleting,   setDeleting]   = useState(false)
+
   // import state
-  const [importRows,    setImportRows]    = useState([])   // [{full_name,email,password,role,_status,_msg}]
+  const [importRows,    setImportRows]    = useState([])
   const [importRunning, setImportRunning] = useState(false)
   const [importDone,    setImportDone]    = useState(false)
   const fileRef = useRef()
@@ -52,6 +68,47 @@ export default function UserManagement({ profile }) {
     if (userId === profile?.id) return
     const { error } = await (qdb || supabase).from('profiles').update({ role: newRole }).eq('id', userId)
     if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
+  }
+
+  // ── Start editing ────────────────────────────────────────────────────────
+  function startEdit(u) {
+    setEditingId(u.id)
+    setEditForm({ full_name: u.full_name || '', role: u.role, classroom: u.classroom || '', password: '' })
+  }
+
+  // ── Save edit ────────────────────────────────────────────────────────────
+  async function saveEdit() {
+    setEditSaving(true)
+    const updates = {
+      full_name: editForm.full_name.trim(),
+      role:      editForm.role,
+      classroom: editForm.role === 'mstudent' ? editForm.classroom.trim() : '',
+    }
+    await (qdb || supabase).from('profiles').update(updates).eq('id', editingId)
+
+    // Update password if provided (requires adminDb)
+    if (editForm.password && editForm.password.length >= 6 && adminDb) {
+      await adminDb.auth.admin.updateUserById(editingId, { password: editForm.password })
+    }
+
+    setUsers(prev => prev.map(u => u.id === editingId ? { ...u, ...updates } : u))
+    setEditingId(null)
+    setEditSaving(false)
+  }
+
+  // ── Delete account ───────────────────────────────────────────────────────
+  async function confirmDelete() {
+    setDeleting(true)
+    // Delete from auth.users (requires service role key)
+    if (adminDb) {
+      await adminDb.auth.admin.deleteUser(deleteId)
+    } else {
+      // Fallback: delete profile only
+      await (qdb || supabase).from('profiles').delete().eq('id', deleteId)
+    }
+    setUsers(prev => prev.filter(u => u.id !== deleteId))
+    setDeleteId(null)
+    setDeleting(false)
   }
 
   // ── Create one account ───────────────────────────────────────────────────
@@ -132,7 +189,9 @@ export default function UserManagement({ profile }) {
         const email     = String(r['Email']       || r['email']    || '').trim().toLowerCase()
         const password  = String(r['ពាក្យសម្ងាត់'] || r['password'] || '').trim()
         const role      = normaliseRole(r['តួនាទី'] || r['role']    || 'teacher')
-        const classroom = String(r['ថ្នាក់រៀន']   || r['classroom'] || '').trim()
+        // Classroom: from column, or auto-extract from email for mstudent
+        let classroom = String(r['ថ្នាក់រៀន'] || r['classroom'] || '').trim()
+        if (!classroom && role === 'mstudent') classroom = extractClassroom(email)
         let warn = ''
         if (!full_name) warn = 'គ្មានឈ្មោះ'
         else if (!email || !email.includes('@')) warn = 'Email មិនត្រឹមត្រូវ'
@@ -202,6 +261,29 @@ export default function UserManagement({ profile }) {
         </div>
       </div>
 
+      {/* ── Delete Confirm Modal ── */}
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <div className="text-3xl text-center mb-3">🗑️</div>
+            <h3 className="text-lg font-bold text-gray-800 text-center mb-1">លុប Account?</h3>
+            <p className="text-sm text-gray-500 text-center mb-5">
+              {users.find(u => u.id === deleteId)?.full_name || users.find(u => u.id === deleteId)?.email}
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteId(null)} disabled={deleting}
+                className="flex-1 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+                បោះបង់
+              </button>
+              <button onClick={confirmDelete} disabled={deleting}
+                className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {deleting ? 'កំពុងលុប…' : 'លុបចោល'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Users List ── */}
       {view === 'list' && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -217,14 +299,67 @@ export default function UserManagement({ profile }) {
                     <th className="px-4 py-3 text-left font-medium">តួនាទី</th>
                     <th className="px-4 py-3 text-left font-medium">ថ្នាក់រៀន</th>
                     <th className="px-4 py-3 text-left font-medium">បង្កើតនៅ</th>
+                    <th className="px-4 py-3 text-center font-medium">សកម្មភាព</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.length === 0
-                    ? <tr><td colSpan={5} className="text-center py-10 text-gray-400">គ្មានអ្នកប្រើ</td></tr>
+                    ? <tr><td colSpan={7} className="text-center py-10 text-gray-400">គ្មានអ្នកប្រើ</td></tr>
                     : users.map((u, i) => {
                         const rm     = ROLE_META[u.role] ?? ROLE_META.teacher
                         const isSelf = u.id === profile?.id
+                        const isEditing = editingId === u.id
+
+                        // ── Edit row ──
+                        if (isEditing) return (
+                          <tr key={u.id} className="border-b bg-blue-50/30">
+                            <td className="px-4 py-2 text-gray-400">{i + 1}</td>
+                            <td className="px-4 py-2">
+                              <input value={editForm.full_name}
+                                onChange={e => setEditForm(p => ({ ...p, full_name: e.target.value }))}
+                                className="w-full border rounded px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-blue-400"
+                                placeholder="ឈ្មោះ" />
+                            </td>
+                            <td className="px-4 py-2 text-xs text-gray-400 font-mono">{u.email}</td>
+                            <td className="px-4 py-2">
+                              <select value={editForm.role}
+                                onChange={e => setEditForm(p => ({ ...p, role: e.target.value, classroom: '' }))}
+                                className="text-xs border rounded px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400">
+                                <option value="teacher">👨‍🏫 Teacher</option>
+                                <option value="admin">👑 Admin</option>
+                                <option value="mstudent">🎓 ប្រធានថ្នាក់</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-2">
+                              {editForm.role === 'mstudent'
+                                ? <input value={editForm.classroom}
+                                    onChange={e => setEditForm(p => ({ ...p, classroom: e.target.value }))}
+                                    className="w-20 border rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-400"
+                                    placeholder="10A" />
+                                : <span className="text-gray-300 text-xs">—</span>}
+                            </td>
+                            <td className="px-4 py-2">
+                              <input value={editForm.password}
+                                onChange={e => setEditForm(p => ({ ...p, password: e.target.value }))}
+                                type="password" placeholder="Password ថ្មី (ទុកទទេ=មិនប្តូរ)"
+                                className="w-full border rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-blue-400" />
+                            </td>
+                            <td className="px-4 py-2">
+                              <div className="flex gap-1 justify-center">
+                                <button onClick={saveEdit} disabled={editSaving}
+                                  className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50">
+                                  {editSaving ? '…' : '💾 រក្សា'}
+                                </button>
+                                <button onClick={() => setEditingId(null)}
+                                  className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-50">
+                                  បោះបង់
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+
+                        // ── Normal row ──
                         return (
                           <tr key={u.id} className={`border-b hover:bg-gray-50 ${isSelf ? 'bg-blue-50/40' : ''}`}>
                             <td className="px-4 py-3 text-gray-400">{i + 1}</td>
@@ -234,16 +369,7 @@ export default function UserManagement({ profile }) {
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-500 font-mono">{u.email}</td>
                             <td className="px-4 py-3">
-                              {isSelf
-                                ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${rm.cls}`}>{rm.label}</span>
-                                : (
-                                  <select value={u.role} onChange={e => changeRole(u.id, e.target.value)}
-                                    className={`text-xs px-2 py-1 rounded-full font-medium border-0 cursor-pointer outline-none ${rm.cls}`}>
-                                    <option value="teacher">👨‍🏫 Teacher</option>
-                                    <option value="admin">👑 Admin</option>
-                                    <option value="mstudent">🎓 ប្រធានថ្នាក់</option>
-                                  </select>
-                                )}
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${rm.cls}`}>{rm.label}</span>
                             </td>
                             <td className="px-4 py-3 text-xs">
                               {u.role === 'mstudent' && u.classroom
@@ -251,6 +377,20 @@ export default function UserManagement({ profile }) {
                                 : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-400">{u.created_at?.slice(0, 10)}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-1 justify-center">
+                                <button onClick={() => startEdit(u)} title="កែប្រែ"
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                                  ✏️
+                                </button>
+                                {!isSelf && (
+                                  <button onClick={() => setDeleteId(u.id)} title="លុប"
+                                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                                    🗑️
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         )
                       })
