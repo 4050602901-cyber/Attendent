@@ -54,8 +54,26 @@ export default function UserManagement({ profile }) {
     if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
   }
 
-  // ── Create one account via SQL RPC (no rate limit, no email confirmation) ──
+  // ── Create one account ───────────────────────────────────────────────────
   async function signUpOne(full_name, email, password, role, classroom = '') {
+    // Method 1: adminDb (service role key) — no rate limit, auto-confirm
+    if (adminDb) {
+      const { data, error: err } = await adminDb.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name, role },
+      })
+      if (err) return { ok: false, msg: err.message }
+      if (data?.user) {
+        const profileData = { id: data.user.id, full_name, email, role,
+          classroom: role === 'mstudent' ? classroom : '' }
+        await adminDb.from('profiles').upsert(profileData, { onConflict: 'id' })
+      }
+      return { ok: true, msg: 'Active' }
+    }
+
+    // Method 2: RPC bulk_create_user (fallback if no service key)
     const { data, error } = await (qdb || supabase).rpc('bulk_create_user', {
       p_email:     email,
       p_password:  password,
@@ -65,7 +83,7 @@ export default function UserManagement({ profile }) {
     })
     if (error) return { ok: false, msg: error.message }
     if (!data?.ok) return { ok: false, msg: data?.msg || 'error' }
-    return { ok: true, msg: data.msg === 'created' ? 'Active' : 'Updated' }
+    return { ok: true, msg: 'Active' }
   }
 
   // ── Single form create ───────────────────────────────────────────────────
