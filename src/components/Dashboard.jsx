@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { supabase, supabaseUrl } from '../lib/supabase'
+import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -25,30 +25,48 @@ export default function Dashboard() {
 
   async function load() {
     try {
-      // AbortController: cancel queries after 12 s to get a real error message
-      const ctrl = new AbortController()
-      const abortTimer = setTimeout(() => ctrl.abort(), 12000)
+      // ── Step 1: raw fetch ping to test REST API connectivity ──
+      let pingInfo = ''
+      try {
+        const ctrl = new AbortController()
+        const t = setTimeout(() => ctrl.abort(), 8000)
+        const r = await fetch(
+          `${supabaseUrl}/rest/v1/students?select=id&limit=1`,
+          { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
+            signal: ctrl.signal }
+        )
+        clearTimeout(t)
+        pingInfo = `HTTP ${r.status}`
+        if (!r.ok) {
+          const body = await r.text()
+          setLoadError(`REST API error ${r.status}: ${body}`)
+          return
+        }
+      } catch (pingErr) {
+        setLoadError(`REST API unreachable: ${pingErr.message} — URL: ${supabaseUrl}`)
+        return
+      }
 
-      // All 4 queries fire in parallel — no sequential waiting
-      const [countRes, clsRes, absentRes, missingRes] = await Promise.all([
-        supabase.from('students')
-          .select('*', { count: 'exact', head: true })
-          .abortSignal(ctrl.signal),
-        supabase.from('students')
-          .select('classroom')
-          .limit(5000)
-          .abortSignal(ctrl.signal),
-        supabase.from('attendance')
-          .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
-          .eq('date', todayStr).neq('status', 'វត្តមាន')
-          .order('created_at', { ascending: false })
-          .abortSignal(ctrl.signal),
-        supabase.from('homework_records')
-          .select('*', { count: 'exact', head: true })
-          .eq('date', todayStr).eq('status', 'មិនបានធ្វើ')
-          .abortSignal(ctrl.signal),
+      // ── Step 2: real queries with Promise.race timeout ──
+      const TIMEOUT_MS = 10000
+      const timeout = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error(`Supabase REST មិនឆ្លើយក្នុង ${TIMEOUT_MS/1000}s (ping=${pingInfo})`)), TIMEOUT_MS)
+      )
+
+      const [countRes, clsRes, absentRes, missingRes] = await Promise.race([
+        Promise.all([
+          supabase.from('students').select('*', { count: 'exact', head: true }),
+          supabase.from('students').select('classroom').limit(5000),
+          supabase.from('attendance')
+            .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
+            .eq('date', todayStr).neq('status', 'វត្តមាន')
+            .order('created_at', { ascending: false }),
+          supabase.from('homework_records')
+            .select('*', { count: 'exact', head: true })
+            .eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
+        ]),
+        timeout,
       ])
-      clearTimeout(abortTimer)
 
       // Surface any query errors visibly for diagnosis
       const firstError = [countRes, clsRes, absentRes, missingRes]
