@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase'
+import { qdb, supabaseUrl, supabaseAnonKey } from '../lib/supabase'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -55,17 +55,14 @@ export default function Dashboard() {
 
       const [countRes, clsStatsRes, absentRes, missingRes] = await Promise.race([
         Promise.all([
-          // Total student count (HEAD — no data transfer)
-          supabase.from('students').select('*', { count: 'exact', head: true }),
-          // Classroom stats via server-side GROUP BY (bypasses 1000-row limit)
-          supabase.rpc('get_classroom_stats'),
-          // Today's absences
-          supabase.from('attendance')
+          // Use qdb (anon, no JWT refresh) to avoid the token-refresh hang
+          qdb.from('students').select('*', { count: 'exact', head: true }),
+          qdb.rpc('get_classroom_stats'),
+          qdb.from('attendance')
             .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
             .eq('date', todayStr).neq('status', 'វត្តមាន')
             .order('created_at', { ascending: false }),
-          // Today's missing homework count (HEAD — no data transfer)
-          supabase.from('homework_records')
+          qdb.from('homework_records')
             .select('*', { count: 'exact', head: true })
             .eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
         ]),
