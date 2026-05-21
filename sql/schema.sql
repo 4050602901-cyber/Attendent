@@ -16,6 +16,8 @@ create table if not exists students (
   gender       varchar(10)  not null,
   dob          date,
   classroom    varchar(30)  not null,
+  status       varchar(20)  not null default 'active'
+                            check (status in ('active','quit','transfer')),
   created_at   timestamptz  default now()
 );
 
@@ -85,3 +87,13 @@ create policy "allow_all_students"         on students         for all using (tr
 create policy "allow_all_subjects"         on subjects         for all using (true) with check (true);
 create policy "allow_all_attendance"       on attendance       for all using (true) with check (true);
 create policy "allow_all_homework_records" on homework_records for all using (true) with check (true);
+
+-- =====================================================
+-- MIGRATION — run this if the students table already
+-- exists (e.g. you ran the schema before this update)
+-- =====================================================
+alter table students
+  add column if not exists status varchar(20) not null default 'active'
+  check (status in ('active','quit','transfer'));
+
+create index if not exists idx_stu_status on students(status);
