@@ -25,7 +25,7 @@ export default function HomeworkTracking() {
   const [saveError,  setSaveError]  = useState('')
 
   useEffect(() => { loadMeta() }, [])
-  useEffect(() => { if (classroom) loadStudents() }, [classroom])
+  useEffect(() => { if (classroom && subjectId && date) loadStudents() }, [classroom, subjectId, date])
 
   async function loadMeta() {
     const [subRes, cls] = await Promise.all([
@@ -45,9 +45,36 @@ export default function HomeworkTracking() {
       .from('students').select('*').eq('classroom', classroom).order('name')
     const list = data || []
     setStudents(list)
-    const defaults = {}
-    list.forEach(s => { defaults[s.id] = 'បានធ្វើ' })
-    setStatuses(defaults)
+
+    // ផ្ទុក homework records ដែលបានរក្សាទុករួចមក (ដូចគ្នាថ្ងៃ + មុខវិជ្ជា)
+    if (list.length) {
+      const { data: hw } = await supabase
+        .from('homework_records')
+        .select('*')
+        .eq('subject_id', subjectId)
+        .eq('date', date)
+        .in('student_id', list.map(s => s.id))
+        .order('created_at', { ascending: false })
+
+      if (hw && hw.length > 0) {
+        // យក title ពី record ទីមួយ (ថ្មីបំផុត)
+        setHwTitle(hw[0].homework_title)
+        const statusMap = {}
+        list.forEach(s => { statusMap[s.id] = 'បានធ្វើ' })
+        hw.forEach(r => { statusMap[r.student_id] = r.status })
+        setStatuses(statusMap)
+      } else {
+        // គ្មាន record — Reset ទៅ Default
+        const defaults = {}
+        list.forEach(s => { defaults[s.id] = 'បានធ្វើ' })
+        setStatuses(defaults)
+        setHwTitle('')
+      }
+    } else {
+      setStatuses({})
+      setHwTitle('')
+    }
+
     setLoading(false)
     setSaved(false)
   }
@@ -57,6 +84,16 @@ export default function HomeworkTracking() {
     if (!students.length) return
     setSaving(true)
     setSaveError('')
+
+    // លុប records ចាស់ (ដូចគ្នា ថ្ងៃ + មុខវិជ្ជា + ថ្នាក់) ដើម្បីជៀសវាង duplicate
+    await supabase
+      .from('homework_records')
+      .delete()
+      .eq('subject_id', parseInt(subjectId))
+      .eq('date', date)
+      .in('student_id', students.map(s => s.id))
+
+    // Insert records ថ្មី
     const records = students.map(s => ({
       student_id:     s.id,
       subject_id:     parseInt(subjectId),
@@ -70,7 +107,6 @@ export default function HomeworkTracking() {
       setSaveError(error.message)
     } else {
       setSaved(true)
-      setHwTitle('')
       setTimeout(() => setSaved(false), 3000)
     }
   }
