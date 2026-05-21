@@ -89,11 +89,13 @@ export default function UserManagement({ profile }) {
   // ── Download Excel template ──────────────────────────────────────────────
   function downloadTemplate() {
     const ws = XLSX.utils.aoa_to_sheet([
-      ['ឈ្មោះ', 'Email', 'ពាក្យសម្ងាត់', 'តួនាទី'],
-      ['គ្រូ សុខ ចន្ទី', 'sokchandi@school.edu.kh', 'pass123', 'teacher'],
-      ['គ្រូ លី វណ្ណ',   'livann@school.edu.kh',   'pass123', 'teacher'],
+      ['ឈ្មោះ', 'Email', 'ពាក្យសម្ងាត់', 'តួនាទី', 'ថ្នាក់រៀន'],
+      ['គ្រូ សុខ ចន្ទី',   'sokchandi@school.edu.kh', 'pass123', 'teacher',  ''],
+      ['គ្រូ លី វណ្ណ',    'livann@school.edu.kh',    'pass123', 'teacher',  ''],
+      ['ប្រ. ហ៊ុន ចន្ទ', 'hunchan@school.edu.kh',   'pass123', 'mstudent', '10A'],
+      ['ប្រ. សុខ ដារា',  'sokdara@school.edu.kh',   'pass123', 'mstudent', '11B'],
     ])
-    ws['!cols'] = [{ wch: 24 }, { wch: 30 }, { wch: 14 }, { wch: 10 }]
+    ws['!cols'] = [{ wch: 24 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 12 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Accounts')
     XLSX.writeFile(wb, 'account_template.xlsx')
@@ -108,15 +110,17 @@ export default function UserManagement({ profile }) {
       const wb = XLSX.read(ev.target.result, { type: 'array' })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
       const parsed = rows.map(r => {
-        const full_name = String(r['ឈ្មោះ'] || r['full_name'] || r['name'] || '').trim()
-        const email     = String(r['Email']   || r['email']    || '').trim().toLowerCase()
+        const full_name = String(r['ឈ្មោះ']      || r['full_name'] || r['name']     || '').trim()
+        const email     = String(r['Email']       || r['email']    || '').trim().toLowerCase()
         const password  = String(r['ពាក្យសម្ងាត់'] || r['password'] || '').trim()
-        const role      = normaliseRole(r['តួនាទី'] || r['role'] || 'teacher')
+        const role      = normaliseRole(r['តួនាទី'] || r['role']    || 'teacher')
+        const classroom = String(r['ថ្នាក់រៀន']   || r['classroom'] || '').trim()
         let warn = ''
         if (!full_name) warn = 'គ្មានឈ្មោះ'
         else if (!email || !email.includes('@')) warn = 'Email មិនត្រឹមត្រូវ'
         else if (password.length < 6) warn = 'ពាក្យសម្ងាត់ < 6 អក្សរ'
-        return { full_name, email, password, role, _status: warn ? 'error' : 'ready', _msg: warn }
+        else if (role === 'mstudent' && !classroom) warn = 'mstudent ត្រូវការ ថ្នាក់រៀន'
+        return { full_name, email, password, role, classroom, _status: warn ? 'error' : 'ready', _msg: warn }
       }).filter(r => r.email || r.full_name)   // skip blank rows
       setImportRows(parsed)
       setImportDone(false)
@@ -137,7 +141,7 @@ export default function UserManagement({ profile }) {
 
       setImportRows(prev => prev.map((r, idx) => idx === i ? { ...r, _status: 'loading' } : r))
 
-      const { ok, msg } = await signUpOne(row.full_name, row.email, row.password, row.role)
+      const { ok, msg } = await signUpOne(row.full_name, row.email, row.password, row.role, row.classroom || '')
 
       setImportRows(prev => prev.map((r, idx) =>
         idx === i ? { ...r, _status: ok ? 'done' : 'error', _msg: msg } : r
@@ -193,6 +197,7 @@ export default function UserManagement({ profile }) {
                     <th className="px-4 py-3 text-left font-medium">ឈ្មោះ</th>
                     <th className="px-4 py-3 text-left font-medium">Email</th>
                     <th className="px-4 py-3 text-left font-medium">តួនាទី</th>
+                    <th className="px-4 py-3 text-left font-medium">ថ្នាក់រៀន</th>
                     <th className="px-4 py-3 text-left font-medium">បង្កើតនៅ</th>
                   </tr>
                 </thead>
@@ -221,6 +226,11 @@ export default function UserManagement({ profile }) {
                                     <option value="mstudent">🎓 ប្រធានថ្នាក់</option>
                                   </select>
                                 )}
+                            </td>
+                            <td className="px-4 py-3 text-xs">
+                              {u.role === 'mstudent' && u.classroom
+                                ? <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-medium">{u.classroom}</span>
+                                : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-400">{u.created_at?.slice(0, 10)}</td>
                           </tr>
@@ -309,8 +319,9 @@ export default function UserManagement({ profile }) {
           <div className="bg-white rounded-xl shadow p-5">
             <h3 className="font-semibold text-gray-800 mb-3">📥 Import Account ពី Excel</h3>
             <div className="text-sm text-gray-600 space-y-1 mb-4">
-              <p>Excel ត្រូវមាន column: <strong>ឈ្មោះ, Email, ពាក្យសម្ងាត់, តួនាទី</strong> (teacher ឬ admin)</p>
-              <p className="text-gray-400 text-xs">* ពាក្យសម្ងាត់ ≥ 6 អក្សរ · ប្រសិន columns ខ្មែរ អាចប្រើ full_name/email/password/role ជំនួស</p>
+              <p>Excel ត្រូវមាន column: <strong>ឈ្មោះ, Email, ពាក្យសម្ងាត់, តួនាទី, ថ្នាក់រៀន</strong></p>
+              <p className="text-gray-400 text-xs">* តួនាទី: <code className="bg-gray-100 px-1 rounded">teacher</code> / <code className="bg-gray-100 px-1 rounded">admin</code> / <code className="bg-gray-100 px-1 rounded">mstudent</code></p>
+              <p className="text-gray-400 text-xs">* ប្រធានថ្នាក់ (mstudent) ត្រូវបំពេញ ថ្នាក់រៀន ឧ. 10A, 11B · Teacher/Admin ទុកទទេ</p>
             </div>
             <div className="flex gap-3 flex-wrap">
               <button onClick={downloadTemplate}
@@ -360,6 +371,7 @@ export default function UserManagement({ profile }) {
                       <th className="px-3 py-2 text-left text-gray-500">Email</th>
                       <th className="px-3 py-2 text-left text-gray-500">ពាក្យសម្ងាត់</th>
                       <th className="px-3 py-2 text-left text-gray-500">តួនាទី</th>
+                      <th className="px-3 py-2 text-left text-gray-500">ថ្នាក់រៀន</th>
                       <th className="px-3 py-2 text-left text-gray-500">ស្ថានភាព</th>
                     </tr>
                   </thead>
@@ -376,10 +388,19 @@ export default function UserManagement({ profile }) {
                         <td className="px-3 py-2 text-gray-400">{'•'.repeat(Math.min(r.password.length, 8))}</td>
                         <td className="px-3 py-2">
                           <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                            r.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                            r.role === 'admin'    ? 'bg-purple-100 text-purple-700' :
+                            r.role === 'mstudent' ? 'bg-green-100  text-green-700'  :
+                                                    'bg-blue-100   text-blue-700'
                           }`}>
-                            {r.role === 'admin' ? '👑 Admin' : '👨‍🏫 Teacher'}
+                            {r.role === 'admin' ? '👑 Admin' : r.role === 'mstudent' ? '🎓 ប្រធានថ្នាក់' : '👨‍🏫 Teacher'}
                           </span>
+                        </td>
+                        <td className="px-3 py-2 font-medium text-gray-700">
+                          {r.role === 'mstudent'
+                            ? (r.classroom
+                                ? <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">{r.classroom}</span>
+                                : <span className="text-red-400">គ្មាន!</span>)
+                            : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-2">
                           <span className={`font-medium ${
