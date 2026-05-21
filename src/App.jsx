@@ -19,11 +19,13 @@ export default function App() {
   useEffect(() => {
     if (!isConfigured) { setAuthLoading(false); return }
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session)
-      if (session) await loadProfile(session.user.id)
-      setAuthLoading(false)
-    })
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        setSession(session)
+        if (session) await loadProfile(session.user.id)
+      })
+      .catch(() => {})
+      .finally(() => setAuthLoading(false))   // ← always runs, even on error
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
       setSession(session)
@@ -34,13 +36,19 @@ export default function App() {
   }, [])
 
   async function loadProfile(userId) {
-    const { data, error } = await supabase
-      .from('profiles').select('*').eq('id', userId).single()
-    if (error) {
-      // Profiles table not yet migrated → treat current user as admin so they can set up
+    try {
+      const { data, error } = await supabase
+        .from('profiles').select('*').eq('id', userId).single()
+      // error PGRST116 = no row found (table exists but no profile yet)
+      // error 42P01   = table doesn't exist yet
+      setProfile(
+        (!error && data)
+          ? data
+          : { id: userId, role: 'admin', full_name: '', email: '' }
+      )
+    } catch {
+      // Network error or unexpected throw → default to admin so app stays usable
       setProfile({ id: userId, role: 'admin', full_name: '', email: '' })
-    } else {
-      setProfile(data)
     }
   }
 

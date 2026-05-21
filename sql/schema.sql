@@ -112,9 +112,9 @@ create table if not exists profiles (
 );
 
 alter table profiles enable row level security;
-create policy if not exists "profiles_select"       on profiles for select using (true);
-create policy if not exists "profiles_insert"       on profiles for insert with check (auth.uid() = id);
-create policy if not exists "profiles_update_admin" on profiles for update
+create policy "profiles_select"       on profiles for select using (true);
+create policy "profiles_insert"       on profiles for insert with check (auth.uid() = id);
+create policy "profiles_update_admin" on profiles for update
   using ((select role from profiles where id = auth.uid()) = 'admin' or auth.uid() = id);
 
 -- Auto-create profile when a new Supabase Auth user signs up
