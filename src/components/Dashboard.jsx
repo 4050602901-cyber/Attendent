@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { qdb } from '../lib/supabase'
+import { classroomSort } from '../lib/fetchAll'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -35,7 +36,9 @@ export default function Dashboard() {
     }
     const counts = {}
     all.forEach(r => { if (r.classroom) counts[r.classroom] = (counts[r.classroom] || 0) + 1 })
-    return Object.entries(counts).map(([classroom, total]) => ({ classroom, total }))
+    return Object.entries(counts)
+      .map(([classroom, total]) => ({ classroom, total }))
+      .sort((a, b) => classroomSort(a.classroom, b.classroom))
   }
 
   async function load() {
