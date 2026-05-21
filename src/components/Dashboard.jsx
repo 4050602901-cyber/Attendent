@@ -8,12 +8,19 @@ export default function Dashboard() {
   const [recentAbsent, setRecentAbsent] = useState([])
   const [classStats,  setClassStats]  = useState([])
   const [loading,     setLoading]     = useState(true)
+  const [loadError,   setLoadError]   = useState(false)
   const todayStr = today()
 
-  useEffect(() => { load() }, [])
+  function loadWithTimeout() {
+    setLoading(true)
+    setLoadError(false)
+    const fallback = setTimeout(() => { setLoading(false); setLoadError(true) }, 15000)
+    load().finally(() => clearTimeout(fallback))
+  }
+
+  useEffect(() => { loadWithTimeout() }, [])
 
   async function load() {
-    setLoading(true)
     try {
       // All 4 queries fire in parallel — no sequential waiting
       const [countRes, clsRes, absentRes, missingRes] = await Promise.all([
@@ -49,8 +56,9 @@ export default function Dashboard() {
       })))
     } catch (e) {
       console.error('Dashboard load error:', e)
+      setLoadError(true)
     } finally {
-      setLoading(false)   // always clears loading, even on error
+      setLoading(false)
     }
   }
 
@@ -61,7 +69,26 @@ export default function Dashboard() {
     { label: 'មិនធ្វើកិច្ចការ',   val: stats.todayMissing,  bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', icon: '📝' },
   ]
 
-  if (loading) return <div className="text-center py-20 text-gray-400 text-sm">កំពុងផ្ទុក…</div>
+  if (loading) return (
+    <div className="text-center py-20">
+      <div className="inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+      <div className="text-gray-400 text-sm">កំពុងភ្ជាប់ទៅ Server…</div>
+      <div className="text-gray-300 text-xs mt-1">ប្រសិនបើយូរ — Supabase free server កំពុង wake up (រង់ចាំ ~30 វិ)</div>
+    </div>
+  )
+
+  if (loadError) return (
+    <div className="text-center py-20">
+      <div className="text-4xl mb-3">⚠️</div>
+      <div className="text-gray-600 text-sm font-medium mb-1">មិនអាចភ្ជាប់ Server បាន</div>
+      <div className="text-gray-400 text-xs mb-4">Supabase free tier ប្រហែលជា pause — សូម retry ប្រហែល 30 វិនាទី</div>
+      <button
+        onClick={loadWithTimeout}
+        className="bg-blue-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+        🔄 ព្យាយាម​ម្ដងទៀត
+      </button>
+    </div>
+  )
 
   return (
     <div>
