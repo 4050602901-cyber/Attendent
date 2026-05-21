@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllBatch } from '../lib/fetchAll'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -19,18 +20,8 @@ export default function Dashboard() {
     const { count: totalStudents } = await supabase
       .from('students').select('*', { count: 'exact', head: true })
 
-    // ── 2. Fetch ALL classrooms in batches (bypasses 1000-row limit) ──
-    const BATCH = 500
-    let allStudents = []; let from = 0; let hasMore = true
-    while (hasMore) {
-      const { data } = await supabase
-        .from('students').select('classroom')
-        .range(from, from + BATCH - 1)
-      const rows = data || []
-      allStudents = allStudents.concat(rows)
-      hasMore = rows.length === BATCH
-      from += BATCH
-    }
+    // ── 2. Fetch ALL classroom rows in batches (for per-class breakdown) ──
+    const classRows = await fetchAllBatch(() => supabase.from('students').select('classroom'))
 
     // ── 3. Today's attendance & homework (filtered by date → small set) ──
     const [absentRes, missingRes] = await Promise.all([
@@ -43,7 +34,7 @@ export default function Dashboard() {
     ])
 
     const absentList = absentRes.data || []
-    const classrooms = [...new Set(allStudents.map(s => s.classroom))].sort()
+    const classrooms = [...new Set(classRows.map(s => s.classroom))].sort()
 
     setStats({
       totalStudents: totalStudents || 0,
@@ -54,7 +45,7 @@ export default function Dashboard() {
     setRecentAbsent(absentList.slice(0, 8))
     setClassStats(classrooms.map(cls => ({
       classroom: cls,
-      total:  allStudents.filter(s => s.classroom === cls).length,
+      total:  classRows.filter(s => s.classroom === cls).length,
       absent: absentList.filter(a => a.students?.classroom === cls).length,
     })))
     setLoading(false)

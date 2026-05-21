@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllClassrooms } from '../lib/fetchAll'
 
 const STATUS_OPTS = [
   { value: 'វត្តមាន',   active: 'bg-green-100  text-green-700  border-green-300' },
@@ -24,12 +25,11 @@ export default function AttendanceTracking() {
   useEffect(() => { if (classroom && subjectId && date) loadStudents() }, [classroom, subjectId, date])
 
   async function loadMeta() {
-    const [s, c] = await Promise.all([
+    const [subRes, cls] = await Promise.all([
       supabase.from('subjects').select('*').order('subject_name'),
-      supabase.from('students').select('classroom'),
+      fetchAllClassrooms(),   // batch-loops — no 1000-row cap
     ])
-    const subs = s.data || []
-    const cls  = [...new Set((c.data || []).map(r => r.classroom))].sort()
+    const subs = subRes.data || []
     setSubjects(subs)
     setClassrooms(cls)
     if (cls.length)  setClassroom(cls[0])

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllClassrooms } from '../lib/fetchAll'
 
 const HW_OPTS = [
   { value: 'បានធ្វើ',            active: 'bg-green-100  text-green-700  border-green-300' },
@@ -26,12 +27,11 @@ export default function HomeworkTracking() {
   useEffect(() => { if (classroom) loadStudents() }, [classroom])
 
   async function loadMeta() {
-    const [s, c] = await Promise.all([
+    const [subRes, cls] = await Promise.all([
       supabase.from('subjects').select('*').order('subject_name'),
-      supabase.from('students').select('classroom'),
+      fetchAllClassrooms(),   // batch-loops — no 1000-row cap
     ])
-    const subs = s.data || []
-    const cls  = [...new Set((c.data || []).map(r => r.classroom))].sort()
+    const subs = subRes.data || []
     setSubjects(subs)
     setClassrooms(cls)
     if (cls.length)  setClassroom(cls[0])
