@@ -8,13 +8,16 @@ export default function Dashboard() {
   const [recentAbsent, setRecentAbsent] = useState([])
   const [classStats,  setClassStats]  = useState([])
   const [loading,     setLoading]     = useState(true)
-  const [loadError,   setLoadError]   = useState(false)
+  const [loadError,   setLoadError]   = useState(null)   // null | string
   const todayStr = today()
 
   function loadWithTimeout() {
     setLoading(true)
-    setLoadError(false)
-    const fallback = setTimeout(() => { setLoading(false); setLoadError(true) }, 15000)
+    setLoadError(null)
+    const fallback = setTimeout(() => {
+      setLoading(false)
+      setLoadError('Timeout — queries took > 15 s. Check Supabase connection.')
+    }, 15000)
     load().finally(() => clearTimeout(fallback))
   }
 
@@ -38,6 +41,14 @@ export default function Dashboard() {
           .eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
       ])
 
+      // Surface any query errors visibly for diagnosis
+      const firstError = [countRes, clsRes, absentRes, missingRes]
+        .map(r => r.error).find(Boolean)
+      if (firstError) {
+        setLoadError(`DB Error: ${firstError.message} (code: ${firstError.code})`)
+        return
+      }
+
       const classRows  = clsRes.data  || []
       const absentList = absentRes.data || []
       const classrooms = [...new Set(classRows.map(s => s.classroom))].sort()
@@ -56,7 +67,7 @@ export default function Dashboard() {
       })))
     } catch (e) {
       console.error('Dashboard load error:', e)
-      setLoadError(true)
+      setLoadError(String(e?.message || e))
     } finally {
       setLoading(false)
     }
@@ -78,10 +89,13 @@ export default function Dashboard() {
   )
 
   if (loadError) return (
-    <div className="text-center py-20">
+    <div className="text-center py-20 px-4">
       <div className="text-4xl mb-3">⚠️</div>
-      <div className="text-gray-600 text-sm font-medium mb-1">មិនអាចភ្ជាប់ Server បាន</div>
-      <div className="text-gray-400 text-xs mb-4">Supabase free tier ប្រហែលជា pause — សូម retry ប្រហែល 30 វិនាទី</div>
+      <div className="text-gray-700 text-sm font-medium mb-2">មានបញ្ហាក្នុងការផ្ទុកទិន្នន័យ</div>
+      <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-left inline-block max-w-lg mb-4">
+        <code className="text-red-700 text-xs break-all">{loadError}</code>
+      </div>
+      <br/>
       <button
         onClick={loadWithTimeout}
         className="bg-blue-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors">
