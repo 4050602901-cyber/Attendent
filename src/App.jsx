@@ -19,20 +19,29 @@ export default function App() {
   useEffect(() => {
     if (!isConfigured) { setAuthLoading(false); return }
 
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
+    // Safety net: force-show Login after 6 s even if Supabase never responds
+    const fallback = setTimeout(() => setAuthLoading(false), 6000)
+
+    async function init() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
         setSession(session)
         if (session) await loadProfile(session.user.id)
-      })
-      .catch(() => {})
-      .finally(() => setAuthLoading(false))   // ← always runs, even on error
+      } catch (e) {
+        console.warn('Auth init error:', e)
+      } finally {
+        clearTimeout(fallback)
+        setAuthLoading(false)
+      }
+    }
+    init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
       setSession(session)
       if (session) await loadProfile(session.user.id)
       else         setProfile(null)
     })
-    return () => subscription.unsubscribe()
+    return () => { subscription.unsubscribe(); clearTimeout(fallback) }
   }, [])
 
   async function loadProfile(userId) {
