@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { supabase, isConfigured } from './lib/supabase'
+import { supabase, qdb, isConfigured } from './lib/supabase'
 import Navigation       from './components/Navigation'
 import Login            from './components/Login'
 import Dashboard        from './components/Dashboard'
@@ -46,19 +46,32 @@ export default function App() {
 
   async function loadProfile(userId) {
     try {
-      const { data, error } = await supabase
+      // Use qdb (no JWT lock) so this never hangs
+      const { data, error } = await qdb
         .from('profiles').select('*').eq('id', userId).single()
-      // error PGRST116 = no row found (table exists but no profile yet)
-      // error 42P01   = table doesn't exist yet
       setProfile(
         (!error && data)
           ? data
           : { id: userId, role: 'admin', full_name: '', email: '' }
       )
     } catch {
-      // Network error or unexpected throw → default to admin so app stays usable
       setProfile({ id: userId, role: 'admin', full_name: '', email: '' })
     }
+  }
+
+  // Robust logout — works even if signOut() is blocked by JWT lock
+  async function handleLogout() {
+    try {
+      await Promise.race([
+        supabase.auth.signOut(),
+        new Promise((_, rej) => setTimeout(() => rej('timeout'), 3000)),
+      ])
+    } catch { /* ignore — clearing manually */ }
+    // Force-clear all Supabase session keys from localStorage
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('sb-') || k.includes('supabase'))
+      .forEach(k => localStorage.removeItem(k))
+    window.location.reload()
   }
 
   const isAdmin = profile?.role === 'admin'
@@ -124,7 +137,7 @@ export default function App() {
               {profile?.full_name || session.user.email}
             </span>
             <button
-              onClick={() => supabase.auth.signOut()}
+              onClick={handleLogout}
               className="text-xs bg-blue-600 hover:bg-blue-500 border border-blue-500 px-3 py-1.5 rounded-lg transition-colors">
               Logout
             </button>

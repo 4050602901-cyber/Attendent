@@ -9,9 +9,13 @@ export const isConfigured =
 
 export { supabaseUrl, supabaseAnonKey }
 
-// ── Auth client — used for login / logout / session management ──────────────
+// ── Auth client — login / logout / session management ───────────────────────
+// autoRefreshToken:false  → prevents the "refresh token" network request that
+// hangs on Vercel, which blocked getSession() and signOut() via session lock.
 export const supabase = isConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { autoRefreshToken: false },
+    })
   : null
 
 // ── Query client — anon-only, NO token refresh, NO session persistence ───────
