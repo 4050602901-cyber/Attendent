@@ -6,12 +6,16 @@ import { supabase } from './supabase'
  */
 export async function fetchAllBatch(buildQuery, batchSize = 500) {
   let all = []; let from = 0; let hasMore = true
-  while (hasMore) {
-    const { data } = await buildQuery().range(from, from + batchSize - 1)
+  const MAX = 100   // safety cap: 100 × 500 = 50 000 rows max
+  let page = 0
+  while (hasMore && page < MAX) {
+    const { data, error } = await buildQuery().range(from, from + batchSize - 1)
+    if (error) break          // stop on error instead of looping forever
     const rows = data || []
     all = all.concat(rows)
     hasMore = rows.length === batchSize
     from += batchSize
+    page++
   }
   return all
 }

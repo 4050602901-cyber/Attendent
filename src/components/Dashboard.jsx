@@ -15,40 +15,46 @@ export default function Dashboard() {
 
   async function load() {
     setLoading(true)
+    try {
+      // ── 1. Total student count ──
+      const { count: totalStudents } = await supabase
+        .from('students').select('*', { count: 'exact', head: true })
 
-    // ── 1. Total student count (HEAD request — zero data transfer) ──
-    const { count: totalStudents } = await supabase
-      .from('students').select('*', { count: 'exact', head: true })
+      // ── 2. Classroom rows in batches ──
+      const classRows = await fetchAllBatch(
+        () => supabase.from('students').select('classroom')
+      )
 
-    // ── 2. Fetch ALL classroom rows in batches (for per-class breakdown) ──
-    const classRows = await fetchAllBatch(() => supabase.from('students').select('classroom'))
+      // ── 3. Today's queries ──
+      const [absentRes, missingRes] = await Promise.all([
+        supabase.from('attendance')
+          .select('id,status,date,students(name,student_code,classroom),subjects(subject_name)')
+          .eq('date', todayStr).neq('status', 'វត្តមាន')
+          .order('created_at', { ascending: false }),
+        supabase.from('homework_records')
+          .select('id').eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
+      ])
 
-    // ── 3. Today's attendance & homework (filtered by date → small set) ──
-    const [absentRes, missingRes] = await Promise.all([
-      supabase.from('attendance')
-        .select('id, status, date, students(name, student_code, classroom), subjects(subject_name)')
-        .eq('date', todayStr).neq('status', 'វត្តមាន')
-        .order('created_at', { ascending: false }),
-      supabase.from('homework_records')
-        .select('id').eq('date', todayStr).eq('status', 'មិនបានធ្វើ'),
-    ])
+      const absentList = absentRes.data || []
+      const classrooms = [...new Set(classRows.map(s => s.classroom))].sort()
 
-    const absentList = absentRes.data || []
-    const classrooms = [...new Set(classRows.map(s => s.classroom))].sort()
-
-    setStats({
-      totalStudents: totalStudents || 0,
-      totalClasses:  classrooms.length,
-      todayAbsent:   absentList.length,
-      todayMissing:  (missingRes.data || []).length,
-    })
-    setRecentAbsent(absentList.slice(0, 8))
-    setClassStats(classrooms.map(cls => ({
-      classroom: cls,
-      total:  classRows.filter(s => s.classroom === cls).length,
-      absent: absentList.filter(a => a.students?.classroom === cls).length,
-    })))
-    setLoading(false)
+      setStats({
+        totalStudents: totalStudents || 0,
+        totalClasses:  classrooms.length,
+        todayAbsent:   absentList.length,
+        todayMissing:  (missingRes.data || []).length,
+      })
+      setRecentAbsent(absentList.slice(0, 8))
+      setClassStats(classrooms.map(cls => ({
+        classroom: cls,
+        total:  classRows.filter(s => s.classroom === cls).length,
+        absent: absentList.filter(a => a.students?.classroom === cls).length,
+      })))
+    } catch (e) {
+      console.error('Dashboard load error:', e)
+    } finally {
+      setLoading(false)   // ← always clears loading, even on error
+    }
   }
 
   const cards = [
