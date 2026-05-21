@@ -127,19 +127,29 @@ export default function App() {
             <p className="text-blue-200 text-xs mt-0.5">Student Attendance &amp; Homework Tracker</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Role badge */}
+            {/* User info */}
             {profile && (
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline ${
-                isAdmin    ? 'bg-purple-500 text-white' :
-                isMStudent ? 'bg-green-500  text-white' :
-                             'bg-blue-500   text-blue-100'
-              }`}>
-                {isAdmin ? '👑 Admin' : isMStudent ? '🎓 ប្រធានថ្នាក់' : '👨‍🏫 Teacher'}
-              </span>
+              <div className="hidden sm:flex flex-col items-end">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold text-white leading-tight">
+                    {profile.full_name || 'អ្នកប្រើ'}
+                  </span>
+                  {/* Verified Pro badge — Admin only */}
+                  {isAdmin && (
+                    <span className="flex items-center gap-0.5 bg-yellow-400 text-yellow-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                      ✦ Pro
+                    </span>
+                  )}
+                </div>
+                <span className={`text-[10px] font-medium mt-0.5 ${
+                  isAdmin    ? 'text-yellow-300' :
+                  isMStudent ? 'text-green-300'  :
+                               'text-blue-200'
+                }`}>
+                  {isAdmin ? '👑 Admin' : isMStudent ? '🎓 ប្រធានថ្នាក់' : '👨‍🏫 Teacher'}
+                </span>
+              </div>
             )}
-            <span className="text-blue-200 text-xs hidden sm:block">
-              {profile?.full_name || session.user.email}
-            </span>
             <button
               onClick={handleLogout}
               className="text-xs bg-blue-600 hover:bg-blue-500 border border-blue-500 px-3 py-1.5 rounded-lg transition-colors">
