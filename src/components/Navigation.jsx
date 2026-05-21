@@ -1,20 +1,28 @@
 import React from 'react'
 
-const TABS = [
-  { id: 'dashboard',  label: 'Dashboard',        icon: '🏠' },
-  { id: 'students',   label: 'គ្រប់គ្រងសិស្ស', icon: '👨‍🎓' },
-  { id: 'attendance', label: 'វត្តមាន',          icon: '📋' },
-  { id: 'homework',   label: 'កិច្ចការ',          icon: '📝' },
-  { id: 'reports',    label: 'របាយការណ៍',        icon: '📊' },
-  { id: 'subjects',   label: 'មុខវិជ្ជា',        icon: '📚' },
+// Tabs visible to everyone
+const COMMON_TABS = [
+  { id: 'dashboard',  label: 'Dashboard',     icon: '🏠' },
+  { id: 'attendance', label: 'វត្តមាន',        icon: '📋' },
+  { id: 'homework',   label: 'កិច្ចការ',        icon: '📝' },
+  { id: 'reports',    label: 'របាយការណ៍',      icon: '📊' },
 ]
 
-export default function Navigation({ activeTab, setActiveTab }) {
+// Additional tabs only for Admin
+const ADMIN_TABS = [
+  { id: 'students',   label: 'គ្រប់គ្រងសិស្ស', icon: '👨‍🎓' },
+  { id: 'subjects',   label: 'មុខវិជ្ជា',       icon: '📚' },
+  { id: 'users',      label: 'Account',         icon: '👥' },
+]
+
+export default function Navigation({ activeTab, setActiveTab, isAdmin = false }) {
+  const tabs = isAdmin ? [...COMMON_TABS, ...ADMIN_TABS] : COMMON_TABS
+
   return (
     <nav className="bg-white border-b border-gray-200 shadow-sm no-print">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex overflow-x-auto">
-          {TABS.map(tab => (
+          {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}

@@ -97,3 +97,47 @@ alter table students
   check (status in ('active','quit','transfer'));
 
 create index if not exists idx_stu_status on students(status);
+
+-- =====================================================
+-- PROFILES — user roles (admin / teacher)
+-- Run this block after the tables above.
+-- =====================================================
+create table if not exists profiles (
+  id         uuid        primary key references auth.users(id) on delete cascade,
+  full_name  text        not null default '',
+  email      text        not null default '',
+  role       text        not null default 'teacher'
+             check (role in ('admin','teacher')),
+  created_at timestamptz default now()
+);
+
+alter table profiles enable row level security;
+create policy if not exists "profiles_select"       on profiles for select using (true);
+create policy if not exists "profiles_insert"       on profiles for insert with check (auth.uid() = id);
+create policy if not exists "profiles_update_admin" on profiles for update
+  using ((select role from profiles where id = auth.uid()) = 'admin' or auth.uid() = id);
+
+-- Auto-create profile when a new Supabase Auth user signs up
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, full_name, email, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    new.email,
+    coalesce(new.raw_user_meta_data->>'role', 'teacher')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- ⚠️ IMPORTANT: After running this SQL, make yourself admin:
+--   update profiles set role = 'admin' where email = 'your-email@example.com';
+-- (replace with your actual login email)

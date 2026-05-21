@@ -1,32 +1,50 @@
 import React, { useState, useEffect } from 'react'
 import { supabase, isConfigured } from './lib/supabase'
-import Navigation from './components/Navigation'
-import Login from './components/Login'
-import Dashboard from './components/Dashboard'
+import Navigation       from './components/Navigation'
+import Login            from './components/Login'
+import Dashboard        from './components/Dashboard'
 import StudentManagement from './components/StudentManagement'
 import AttendanceTracking from './components/AttendanceTracking'
 import HomeworkTracking from './components/HomeworkTracking'
-import Reports from './components/Reports'
+import Reports          from './components/Reports'
 import SubjectManagement from './components/SubjectManagement'
+import UserManagement   from './components/UserManagement'
 
 export default function App() {
   const [session,     setSession]     = useState(null)
+  const [profile,     setProfile]     = useState(null)   // { id, role, full_name, email }
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab,   setActiveTab]   = useState('dashboard')
 
   useEffect(() => {
     if (!isConfigured) { setAuthLoading(false); return }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
+      if (session) await loadProfile(session.user.id)
       setAuthLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
       setSession(session)
+      if (session) await loadProfile(session.user.id)
+      else         setProfile(null)
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  async function loadProfile(userId) {
+    const { data, error } = await supabase
+      .from('profiles').select('*').eq('id', userId).single()
+    if (error) {
+      // Profiles table not yet migrated → treat current user as admin so they can set up
+      setProfile({ id: userId, role: 'admin', full_name: '', email: '' })
+    } else {
+      setProfile(data)
+    }
+  }
+
+  const isAdmin = profile?.role === 'admin'
 
   /* ── Not configured ── */
   if (!isConfigured) {
@@ -77,7 +95,17 @@ export default function App() {
             <p className="text-blue-200 text-xs mt-0.5">Student Attendance &amp; Homework Tracker</p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-blue-200 text-xs hidden sm:block">{session.user.email}</span>
+            {/* Role badge */}
+            {profile && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline ${
+                isAdmin ? 'bg-purple-500 text-white' : 'bg-blue-500 text-blue-100'
+              }`}>
+                {isAdmin ? '👑 Admin' : '👨‍🏫 Teacher'}
+              </span>
+            )}
+            <span className="text-blue-200 text-xs hidden sm:block">
+              {profile?.full_name || session.user.email}
+            </span>
             <button
               onClick={() => supabase.auth.signOut()}
               className="text-xs bg-blue-600 hover:bg-blue-500 border border-blue-500 px-3 py-1.5 rounded-lg transition-colors">
@@ -87,15 +115,17 @@ export default function App() {
         </div>
       </header>
 
-      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} isAdmin={isAdmin} />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeTab === 'dashboard'  && <Dashboard />}
-        {activeTab === 'students'   && <StudentManagement />}
         {activeTab === 'attendance' && <AttendanceTracking />}
         {activeTab === 'homework'   && <HomeworkTracking />}
         {activeTab === 'reports'    && <Reports />}
-        {activeTab === 'subjects'   && <SubjectManagement />}
+        {/* Admin-only tabs */}
+        {activeTab === 'students'   && isAdmin && <StudentManagement />}
+        {activeTab === 'subjects'   && isAdmin && <SubjectManagement />}
+        {activeTab === 'users'      && isAdmin && <UserManagement profile={profile} />}
       </main>
     </div>
   )

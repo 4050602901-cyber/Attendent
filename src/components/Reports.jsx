@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchAllClassrooms } from '../lib/fetchAll'
+import SearchableSelect from './SearchableSelect'
 
 function today() { return new Date().toISOString().split('T')[0] }
 
@@ -272,20 +273,30 @@ export default function Reports() {
       <div className="bg-white rounded-lg shadow p-4 mb-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">ថ្នាក់</label>
-            <select value={filters.classroom} onChange={e => setFilters(f => ({ ...f, classroom: e.target.value }))}
-              className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-              <option>ទាំងអស់</option>
-              {classrooms.map(c => <option key={c}>{c}</option>)}
-            </select>
+            <SearchableSelect
+              label="ថ្នាក់"
+              value={filters.classroom}
+              onChange={v => setFilters(f => ({ ...f, classroom: v }))}
+              options={['ទាំងអស់', ...classrooms]}
+            />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">មុខវិជ្ជា</label>
-            <select value={filters.subject} onChange={e => setFilters(f => ({ ...f, subject: e.target.value }))}
-              className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="ទាំងអស់">ទាំងអស់</option>
-              {subjects.map(s => <option key={s.id} value={s.id}>{s.subject_name}</option>)}
-            </select>
+            <SearchableSelect
+              label="មុខវិជ្ជា"
+              value={
+                filters.subject === 'ទាំងអស់'
+                  ? 'ទាំងអស់'
+                  : subjects.find(s => String(s.id) === filters.subject)?.subject_name ?? 'ទាំងអស់'
+              }
+              onChange={v => {
+                if (v === 'ទាំងអស់') setFilters(f => ({ ...f, subject: 'ទាំងអស់' }))
+                else {
+                  const found = subjects.find(s => s.subject_name === v)
+                  if (found) setFilters(f => ({ ...f, subject: String(found.id) }))
+                }
+              }}
+              options={['ទាំងអស់', ...subjects.map(s => s.subject_name)]}
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">ចាប់ពី</label>

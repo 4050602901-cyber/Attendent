@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import SearchableSelect from './SearchableSelect'
+import { classroomSort } from '../lib/fetchAll'
 
 const PAGE_SIZE = 100
 
@@ -82,7 +84,7 @@ export default function StudentManagement() {
         hasMore = rows.length === BATCH
         from += BATCH
       }
-      setClassrooms(['ទាំងអស់', ...[...new Set(all.map(r => r.classroom))].sort()])
+      setClassrooms(['ទាំងអស់', ...[...new Set(all.map(r => r.classroom))].sort(classroomSort)])
     })()
   }, [])
 
@@ -339,12 +341,13 @@ export default function StudentManagement() {
 
       {/* ── Filters ── */}
       <div className="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">ថ្នាក់រៀន</label>
-          <select value={filterClass} onChange={e => setFilterClass(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-            {classrooms.map(c => <option key={c}>{c}</option>)}
-          </select>
+        <div className="w-36">
+          <SearchableSelect
+            label="ថ្នាក់រៀន"
+            value={filterClass}
+            onChange={setFilterClass}
+            options={classrooms}
+          />
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">ស្ថានភាព</label>

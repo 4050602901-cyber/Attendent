@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAllClassrooms } from '../lib/fetchAll'
+import SearchableSelect from './SearchableSelect'
 
 const STATUS_OPTS = [
   { value: 'វត្តមាន',   active: 'bg-green-100  text-green-700  border-green-300' },
@@ -93,11 +94,12 @@ export default function AttendanceTracking() {
             className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">ថ្នាក់រៀន</label>
-          <select value={classroom} onChange={e => setClassroom(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500">
-            {classrooms.map(c => <option key={c}>{c}</option>)}
-          </select>
+          <SearchableSelect
+            label="ថ្នាក់រៀន"
+            value={classroom}
+            onChange={setClassroom}
+            options={classrooms}
+          />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">មុខវិជ្ជា</label>
