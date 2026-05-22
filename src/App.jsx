@@ -17,6 +17,27 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab,   setActiveTab]   = useState('dashboard')
 
+  // PWA install prompt
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [installed,     setInstalled]     = useState(false)
+
+  useEffect(() => {
+    // Capture the install prompt before browser consumes it
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    // Detect if already installed (standalone mode)
+    if (window.matchMedia('(display-mode: standalone)').matches) setInstalled(true)
+    window.addEventListener('appinstalled', () => { setInstalled(true); setInstallPrompt(null) })
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  async function handleInstall() {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const { outcome } = await installPrompt.userChoice
+    if (outcome === 'accepted') { setInstalled(true); setInstallPrompt(null) }
+  }
+
   useEffect(() => {
     if (!isConfigured) { setAuthLoading(false); return }
 
@@ -149,6 +170,14 @@ export default function App() {
                   {isAdmin ? '👑 Admin' : isMStudent ? '🎓 ប្រធានថ្នាក់' : '👨‍🏫 Teacher'}
                 </span>
               </div>
+            )}
+            {/* Install PWA button — shows only when installable */}
+            {installPrompt && !installed && (
+              <button onClick={handleInstall}
+                className="flex items-center gap-1.5 text-xs bg-green-500 hover:bg-green-400 text-white px-3 py-1.5 rounded-lg transition-colors font-medium animate-pulse">
+                <span>📲</span>
+                <span className="hidden sm:inline">ដំឡើង App</span>
+              </button>
             )}
             <button
               onClick={handleLogout}

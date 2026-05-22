@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function Login() {
@@ -8,6 +8,24 @@ export default function Login() {
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState('')
   const [msg,      setMsg]      = useState('')
+
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [installed,     setInstalled]     = useState(false)
+
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    if (window.matchMedia('(display-mode: standalone)').matches) setInstalled(true)
+    window.addEventListener('appinstalled', () => { setInstalled(true); setInstallPrompt(null) })
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  async function handleInstall() {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const { outcome } = await installPrompt.userChoice
+    if (outcome === 'accepted') { setInstalled(true); setInstallPrompt(null) }
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -64,6 +82,25 @@ export default function Login() {
             ? <><span>គ្មាន account? </span><button onClick={() => switchMode('signup')} className="text-blue-600 hover:underline font-medium">Sign Up</button></>
             : <><span>មាន account? </span><button onClick={() => switchMode('login')} className="text-blue-600 hover:underline font-medium">Login</button></>}
         </p>
+
+        {/* PWA Install Banner */}
+        {installPrompt && !installed && (
+          <div className="mt-5 border border-green-200 bg-green-50 rounded-xl p-3 flex items-center gap-3">
+            <div className="text-2xl">📲</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-green-800">ដំឡើង App នៅលើទូរសព្ទ</p>
+              <p className="text-xs text-green-600">ចូលប្រើបានលឿន ដូច App ពិតប្រាកដ</p>
+            </div>
+            <button onClick={handleInstall}
+              className="shrink-0 bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-medium hover:bg-green-700 transition-colors">
+              ដំឡើង
+            </button>
+          </div>
+        )}
+
+        {installed && (
+          <p className="text-center text-xs text-green-600 mt-4">✅ App ត្រូវបានដំឡើងស្រេចហើយ</p>
+        )}
       </div>
     </div>
   )
